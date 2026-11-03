@@ -1,0 +1,183 @@
+{
+    "$schema": "https://www.symcon.de/assets/files/validation/formSchema.json",
+    "elements": [
+        {
+            "type": "Label",
+            "caption": "UniFi Protect",
+            "bold": true
+        },
+        {
+            "type": "ValidationTextBox",
+            "name": "Host",
+            "caption": "Protect console (host or IP)"
+        },
+        {
+            "type": "PasswordTextBox",
+            "name": "APIKey",
+            "caption": "API key"
+        },
+        {
+            "type": "Label",
+            "caption": "Create the API key in UniFi OS under Control Plane > Integrations. It has administrator rights: keep it secret.",
+            "italic": true
+        },
+        {
+            "type": "CheckBox",
+            "name": "SkipCertificateCheck",
+            "caption": "Do not verify certificate (for self-signed certificates)"
+        },
+        {
+            "type": "Label",
+            "caption": "Cameras: click \"Fetch cameras\" below, select the cameras and click \"Apply\".",
+            "bold": true
+        },
+        {
+            "type": "List",
+            "name": "Cameras",
+            "caption": "Cameras",
+            "rowCount": 10,
+            "add": false,
+            "delete": true,
+            "loadValuesFromConfiguration": false,
+            "sort": {
+                "column": "Name",
+                "direction": "ascending"
+            },
+            "columns": [
+                {
+                    "caption": "Active",
+                    "name": "Enabled",
+                    "width": "70px",
+                    "add": false,
+                    "edit": {
+                        "type": "CheckBox"
+                    }
+                },
+                {
+                    "caption": "Name",
+                    "name": "Name",
+                    "width": "auto",
+                    "add": "",
+                    "save": true
+                },
+                {
+                    "caption": "Type",
+                    "name": "Type",
+                    "width": "180px",
+                    "add": "",
+                    "save": true
+                },
+                {
+                    "caption": "State",
+                    "name": "State",
+                    "width": "120px",
+                    "add": "",
+                    "save": true
+                },
+                {
+                    "caption": "Full HD",
+                    "name": "FullHDText",
+                    "width": "80px",
+                    "add": ""
+                },
+                {
+                    "caption": "Snapshot",
+                    "name": "Snapshot",
+                    "width": "200px",
+                    "add": ""
+                },
+                {
+                    "caption": "Camera ID",
+                    "name": "CameraID",
+                    "width": "220px",
+                    "add": "",
+                    "save": true
+                },
+                {
+                    "caption": "Full HD supported",
+                    "name": "FullHD",
+                    "width": "0px",
+                    "add": false,
+                    "visible": false,
+                    "save": true
+                }
+            ],
+            "values": []
+        }
+    ],
+    "actions": [
+        {
+            "type": "RowLayout",
+            "items": [
+                {
+                    "type": "Button",
+                    "caption": "Test connection",
+                    "onClick": "CAR_UITestConnection($id);"
+                },
+                {
+                    "type": "Button",
+                    "caption": "Fetch cameras",
+                    "onClick": "CAR_UIFetchCameras($id);"
+                }
+            ]
+        },
+        {
+            "type": "RowLayout",
+            "items": [
+                {
+                    "type": "Select",
+                    "name": "SnapshotCamera",
+                    "caption": "Camera",
+                    "options": [
+                        {
+                            "caption": "No active camera",
+                            "value": ""
+                        }
+                    ]
+                },
+                {
+                    "type": "Button",
+                    "caption": "Test snapshot",
+                    "onClick": "CAR_UITestSnapshot($id, $SnapshotCamera);"
+                }
+            ]
+        }
+    ],
+    "status": [
+        {
+            "code": 102,
+            "icon": "active",
+            "caption": "Ready"
+        },
+        {
+            "code": 201,
+            "icon": "error",
+            "caption": "Protect console host or API key is missing"
+        },
+        {
+            "code": 202,
+            "icon": "error",
+            "caption": "PHP extension cURL is not available"
+        },
+        {
+            "code": 203,
+            "icon": "error",
+            "caption": "Protect console not reachable"
+        },
+        {
+            "code": 204,
+            "icon": "error",
+            "caption": "API key invalid or without permission"
+        },
+        {
+            "code": 205,
+            "icon": "error",
+            "caption": "Certificate could not be verified (see option \"Do not verify certificate\")"
+        },
+        {
+            "code": 206,
+            "icon": "error",
+            "caption": "Unexpected response from the Protect console"
+        }
+    ]
+}

@@ -10,6 +10,7 @@ Thumbs.db
 /node_modules/
 .php-cs-fixer.cache
 .phpunit.result.cache
+.phpunit.cache/
 
 # Lokale Tests – niemals einchecken
 *.local.json

@@ -1,0 +1,12 @@
+{
+    "id": "{E4713B63-4980-15EF-7247-819552E1629E}",
+    "author": "Loerdy",
+    "name": "Camera Archive",
+    "url": "https://github.com/Loerdy/symcon-kameraarchiv",
+    "compatibility": {
+        "version": "8.1"
+    },
+    "version": "0.1",
+    "build": 0,
+    "date": 1793664000
+}

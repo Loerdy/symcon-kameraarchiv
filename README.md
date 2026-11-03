@@ -4,6 +4,12 @@ Snapshots von Kameras per Auslöser (Klingel, Türkontakt, Bewegungsmelder …) 
 
 > Status: in Entwicklung. Konzept siehe [docs/KONZEPT.md](docs/KONZEPT.md).
 
+## Module
+
+| Modul | Beschreibung |
+| ----- | ------------ |
+| [Kamera-Archiv](CameraArchive/README.md) | Snapshots über die UniFi Protect Integration API abrufen und archivieren |
+
 ## Branches
 
 - `main` – veröffentlichte Versionen
