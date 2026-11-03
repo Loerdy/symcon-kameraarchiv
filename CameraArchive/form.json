@@ -123,6 +123,124 @@
         },
         {
             "type": "Label",
+            "caption": "Triggers: a snapshot is taken when the condition of a trigger is met.",
+            "bold": true
+        },
+        {
+            "type": "List",
+            "name": "Triggers",
+            "caption": "Triggers",
+            "rowCount": 6,
+            "add": true,
+            "delete": true,
+            "loadValuesFromConfiguration": false,
+            "form": "return json_decode(CAR_UITriggerForm($id, $Triggers['VariableID'] ?? 0, $Triggers['Condition'] ?? 0), true);",
+            "columns": [
+                {
+                    "caption": "Active",
+                    "name": "Active",
+                    "width": "70px",
+                    "add": true,
+                    "edit": {
+                        "type": "CheckBox"
+                    }
+                },
+                {
+                    "caption": "Name",
+                    "name": "Name",
+                    "width": "160px",
+                    "add": "",
+                    "edit": {
+                        "type": "ValidationTextBox"
+                    }
+                },
+                {
+                    "caption": "Variable",
+                    "name": "VariableID",
+                    "width": "auto",
+                    "add": 0,
+                    "edit": {
+                        "type": "SelectVariable"
+                    }
+                },
+                {
+                    "caption": "Condition",
+                    "name": "Condition",
+                    "width": "190px",
+                    "add": 0,
+                    "edit": {
+                        "type": "Select",
+                        "options": [
+                            {
+                                "caption": "Any change",
+                                "value": 0
+                            },
+                            {
+                                "caption": "Any update",
+                                "value": 1
+                            },
+                            {
+                                "caption": "Changes to value",
+                                "value": 2
+                            },
+                            {
+                                "caption": "Is updated with value",
+                                "value": 3
+                            }
+                        ]
+                    }
+                },
+                {
+                    "caption": "Cameras",
+                    "name": "CameraNames",
+                    "width": "200px",
+                    "add": ""
+                },
+                {
+                    "caption": "Delay",
+                    "name": "Delay",
+                    "width": "80px",
+                    "add": 0,
+                    "edit": {
+                        "type": "NumberSpinner",
+                        "suffix": "s",
+                        "minimum": 0,
+                        "maximum": 60
+                    }
+                },
+                {
+                    "caption": "Lockout",
+                    "name": "Lockout",
+                    "width": "90px",
+                    "add": 30,
+                    "edit": {
+                        "type": "NumberSpinner",
+                        "suffix": "s",
+                        "minimum": 0,
+                        "maximum": 3600
+                    }
+                },
+                {
+                    "caption": "Value",
+                    "name": "Value",
+                    "width": "0px",
+                    "add": "",
+                    "visible": false,
+                    "save": true
+                }
+            ],
+            "values": []
+        },
+        {
+            "type": "NumberSpinner",
+            "name": "CameraLockout",
+            "caption": "Minimum interval between two snapshots of a camera",
+            "suffix": "s",
+            "minimum": 0,
+            "maximum": 3600
+        },
+        {
+            "type": "Label",
             "caption": "Storage (RAM)",
             "bold": true
         },

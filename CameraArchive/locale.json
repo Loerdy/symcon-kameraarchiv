@@ -60,7 +60,24 @@
             "Image slot %s is used by another object": "Bildplatz %s ist durch ein anderes Objekt belegt",
             "The image index could not be saved": "Der Bildindex konnte nicht gespeichert werden",
             "Image index": "Bildindex",
-            "Stored images: %d, %s in RAM": "Gespeicherte Bilder: %d, %s im RAM"
+            "Stored images: %d, %s in RAM": "Gespeicherte Bilder: %d, %s im RAM",
+            "Triggers: a snapshot is taken when the condition of a trigger is met.": "Auslöser: Ein Snapshot wird aufgenommen, wenn die Bedingung eines Auslösers erfüllt ist.",
+            "Triggers": "Auslöser",
+            "Variable": "Variable",
+            "Condition": "Bedingung",
+            "Any change": "Jede Änderung",
+            "Any update": "Jede Aktualisierung",
+            "Changes to value": "Wechselt auf Wert",
+            "Is updated with value": "Wird mit Wert aktualisiert",
+            "Delay": "Verzögerung",
+            "Lockout": "Sperrzeit",
+            "Value": "Wert",
+            "Minimum interval between two snapshots of a camera": "Mindestabstand zwischen zwei Snapshots einer Kamera",
+            "Name (empty: name of the variable)": "Name (leer: Name der Variable)",
+            "inactive": "inaktiv",
+            "The camera list is empty. Fetch the cameras first.": "Die Kameraliste ist leer. Bitte zuerst die Kameras abrufen.",
+            "Lockout time of this trigger": "Sperrzeit dieses Auslösers",
+            "none": "keine"
         }
     }
 }

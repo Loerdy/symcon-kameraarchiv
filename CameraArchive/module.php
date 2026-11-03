@@ -39,6 +39,22 @@ class CameraArchive extends IPSModuleStrict
     private const SLOT_IDENT_PREFIX = 'IMG_';
     private const STORAGE_LOCK_TIMEOUT = 5000;
 
+    // Triggers (phase 4): conditions of a trigger row
+    private const CONDITION_CHANGE = 0;
+    private const CONDITION_UPDATE = 1;
+    private const CONDITION_CHANGE_TO = 2;
+    private const CONDITION_UPDATE_WITH = 3;
+
+    private const DELAY_MAX = 60;
+    private const LOCKOUT_MAX = 3600;
+    private const TRIGGER_LOCKOUT_DEFAULT = 30;
+    private const CAMERA_LOCKOUT_DEFAULT = 5;
+
+    // Queue of due snapshots, kept in a buffer (RAM only, no flash writes per trigger)
+    private const QUEUE_TIMER = 'ProcessQueue';
+    private const QUEUE_BUFFER = 'TriggerState';
+    private const QUEUE_LOCK_TIMEOUT = 2000;
+
     public function Create(): void
     {
         // Never delete this line!
@@ -51,10 +67,37 @@ class CameraArchive extends IPSModuleStrict
         $this->RegisterPropertyBoolean('ResizeEnabled', true);
         $this->RegisterPropertyInteger('ResizeWidth', 1280);
         $this->RegisterPropertyInteger('ResizeQuality', 75);
+        $this->RegisterPropertyString('Triggers', '[]');
+        $this->RegisterPropertyInteger('CameraLockout', self::CAMERA_LOCKOUT_DEFAULT);
 
         // Camera IDs for which Protect delivered no JPEG snapshot. This is runtime knowledge,
         // not user configuration, therefore an attribute and not a property.
         $this->RegisterAttributeString('NoSnapshotCameras', '[]');
+
+        // A single timer, always set to the next due snapshot of the queue (no polling)
+        $this->RegisterTimer(self::QUEUE_TIMER, 0, 'IPS_RequestAction($_IPS[\'TARGET\'], \'' . self::QUEUE_TIMER . '\', 0);');
+    }
+
+    public function MessageSink(int $TimeStamp, int $SenderID, int $Message, array $Data): void
+    {
+        if ($Message === IPS_KERNELSTARTED) {
+            $this->TrimAllCameras();
+            $this->InitTriggerState();
+            return;
+        }
+        if ($Message === VM_UPDATE) {
+            // Only queue snapshots here; fetching happens in the timer (no blocking in MessageSink)
+            $this->HandleVariableUpdate($SenderID);
+        }
+    }
+
+    public function RequestAction(string $Ident, mixed $Value): void
+    {
+        if ($Ident === self::QUEUE_TIMER) {
+            $this->ProcessQueue();
+            return;
+        }
+        throw new Exception(sprintf('Invalid ident %s', $Ident));
     }
 
     public function ApplyChanges(): void
@@ -73,10 +116,13 @@ class CameraArchive extends IPSModuleStrict
             $this->LogMessage($this->Translate('PHP extension GD is not available: images are stored without resizing.'), KL_WARNING);
         }
 
-        // Media below the instance are only touched once the kernel is ready (best practice).
-        // During startup, surplus images are removed with the next stored snapshot instead.
+        $this->RegisterTriggerMessages();
+
+        // Objects are only touched once the kernel is ready (best practice), otherwise IPS_KERNELSTARTED does it
+        $this->RegisterMessage(0, IPS_KERNELSTARTED);
         if (IPS_GetKernelRunlevel() === KR_READY) {
             $this->TrimAllCameras();
+            $this->InitTriggerState();
         }
 
         // No network access here: ApplyChanges also runs during startup and must not block.
@@ -91,6 +137,8 @@ class CameraArchive extends IPSModuleStrict
         // (store review guideline 13). This allows adding the computed columns.
         $cameras = $this->GetCameraList();
         $this->PatchFormField($form['elements'], 'Cameras', 'values', $this->BuildCameraRows($cameras));
+
+        $this->PatchFormField($form['elements'], 'Triggers', 'values', $this->BuildTriggerRows($cameras));
 
         $this->PatchFormField($form['elements'], 'StorageInfo', 'caption', $this->GetStorageInfo());
         if ($this->ReadPropertyBoolean('ResizeEnabled') && !$this->IsGDAvailable()) {
@@ -167,6 +215,54 @@ class CameraArchive extends IPSModuleStrict
         }
         $this->UpdateFormField('StorageInfo', 'caption', $this->GetStorageInfo());
         echo sprintf($this->Translate('Images of %d removed cameras deleted'), $count);
+    }
+
+    /**
+     * Edit dialog of a trigger row. Called by the PHP code of the list parameter "form", which runs outside the module.
+     * The values of the row are filled in by the console via the element names.
+     */
+    public function UITriggerForm(int $VariableID, int $Condition): string
+    {
+        $update = 'CAR_UITriggerUpdate($id, $VariableID, $Condition);';
+        $elements = [
+            ['type' => 'CheckBox', 'name' => 'Active', 'caption' => $this->Translate('Active')],
+            ['type' => 'ValidationTextBox', 'name' => 'Name', 'caption' => $this->Translate('Name (empty: name of the variable)')],
+            ['type' => 'SelectVariable', 'name' => 'VariableID', 'caption' => $this->Translate('Variable'), 'onChange' => $update],
+            ['type' => 'Select', 'name' => 'Condition', 'caption' => $this->Translate('Condition'), 'options' => $this->GetConditionOptions(), 'onChange' => $update],
+            [
+                'type'       => 'SelectValue',
+                'name'       => 'Value',
+                'caption'    => $this->Translate('Value'),
+                'variableID' => max(1, $VariableID),
+                'visible'    => $VariableID > 0 && $this->ConditionNeedsValue($Condition)
+            ],
+            ['type' => 'Label', 'caption' => $this->Translate('Cameras'), 'bold' => true]
+        ];
+        $cameras = $this->GetCameraList();
+        foreach ($cameras as $camera) {
+            $caption = $camera['Name'] !== '' ? $camera['Name'] : $camera['CameraID'];
+            if (!$camera['Enabled']) {
+                $caption .= ' (' . $this->Translate('inactive') . ')';
+            }
+            $elements[] = ['type' => 'CheckBox', 'name' => 'Camera_' . $camera['CameraID'], 'caption' => $caption];
+        }
+        if (count($cameras) === 0) {
+            $elements[] = ['type' => 'Label', 'caption' => $this->Translate('The camera list is empty. Fetch the cameras first.')];
+        }
+        $elements[] = ['type' => 'NumberSpinner', 'name' => 'Delay', 'caption' => $this->Translate('Delay'), 'suffix' => 's', 'minimum' => 0, 'maximum' => self::DELAY_MAX];
+        $elements[] = ['type' => 'NumberSpinner', 'name' => 'Lockout', 'caption' => $this->Translate('Lockout time of this trigger'), 'suffix' => 's', 'minimum' => 0, 'maximum' => self::LOCKOUT_MAX];
+        return json_encode($elements);
+    }
+
+    /**
+     * onChange of variable and condition in the trigger dialog: adapts the value field.
+     */
+    public function UITriggerUpdate(int $VariableID, int $Condition): void
+    {
+        if ($VariableID > 0) {
+            $this->UpdateFormField('Value', 'variableID', $VariableID);
+        }
+        $this->UpdateFormField('Value', 'visible', $VariableID > 0 && $this->ConditionNeedsValue($Condition));
     }
 
     /**
@@ -581,6 +677,305 @@ class CameraArchive extends IPSModuleStrict
             return;
         }
         $this->WriteAttributeString('NoSnapshotCameras', json_encode($ids));
+    }
+
+    /**
+     * Saved trigger rows with validated values. "Index" is the position in the list (key for the lockout).
+     * The cameras of a row are stored as values "Camera_<id>" = true (one CheckBox per camera in the dialog).
+     */
+    private function GetTriggerList(): array
+    {
+        $list = json_decode($this->ReadPropertyString('Triggers'), true);
+        if (!is_array($list)) {
+            return [];
+        }
+        $triggers = [];
+        foreach (array_values(array_filter($list, 'is_array')) as $index => $row) {
+            $cameras = [];
+            foreach ($row as $key => $value) {
+                if (is_string($key) && str_starts_with($key, 'Camera_') && $value === true && $this->IsValidCameraID(substr($key, 7))) {
+                    $cameras[] = substr($key, 7);
+                }
+            }
+            $condition = $row['Condition'] ?? self::CONDITION_CHANGE;
+            $triggers[] = [
+                'Index'      => $index,
+                'Active'     => ($row['Active'] ?? true) === true,
+                'Name'       => is_string($row['Name'] ?? null) ? trim($row['Name']) : '',
+                'VariableID' => is_int($row['VariableID'] ?? null) ? $row['VariableID'] : 0,
+                'Condition'  => is_int($condition) && $condition >= self::CONDITION_CHANGE && $condition <= self::CONDITION_UPDATE_WITH ? $condition : self::CONDITION_CHANGE,
+                'Value'      => is_string($row['Value'] ?? null) ? $row['Value'] : '',
+                'Delay'      => $this->ClampInteger($row['Delay'] ?? 0, 0, self::DELAY_MAX, 0),
+                'Lockout'    => $this->ClampInteger($row['Lockout'] ?? self::TRIGGER_LOCKOUT_DEFAULT, 0, self::LOCKOUT_MAX, self::TRIGGER_LOCKOUT_DEFAULT),
+                'Cameras'    => $cameras
+            ];
+        }
+        return $triggers;
+    }
+
+    private function ClampInteger(mixed $Value, int $Minimum, int $Maximum, int $Default): int
+    {
+        return is_int($Value) ? max($Minimum, min($Maximum, $Value)) : $Default;
+    }
+
+    /**
+     * Saved trigger rows plus the computed column "CameraNames" and row colors. All saved values are kept.
+     */
+    private function BuildTriggerRows(array $Cameras): array
+    {
+        $names = [];
+        foreach ($Cameras as $camera) {
+            $names[$camera['CameraID']] = $camera['Name'] !== '' ? $camera['Name'] : $camera['CameraID'];
+        }
+        $list = json_decode($this->ReadPropertyString('Triggers'), true);
+        $rows = [];
+        $triggers = $this->GetTriggerList();
+        foreach (is_array($list) ? array_values(array_filter($list, 'is_array')) : [] as $position => $row) {
+            $trigger = $triggers[$position];
+            $cameraNames = array_map(fn (string $ID): string => $names[$ID] ?? $ID, $trigger['Cameras']);
+            $row['CameraNames'] = count($cameraNames) > 0 ? implode(', ', $cameraNames) : $this->Translate('none');
+            $row['rowColor'] = '';
+            if ($trigger['VariableID'] === 0 || !IPS_VariableExists($trigger['VariableID'])) {
+                $row['rowColor'] = '#FFC0C0';
+            } elseif (count($trigger['Cameras']) === 0) {
+                $row['rowColor'] = '#FFFFC0';
+            }
+            $rows[] = $row;
+        }
+        return $rows;
+    }
+
+    private function GetConditionOptions(): array
+    {
+        return [
+            ['caption' => $this->Translate('Any change'), 'value' => self::CONDITION_CHANGE],
+            ['caption' => $this->Translate('Any update'), 'value' => self::CONDITION_UPDATE],
+            ['caption' => $this->Translate('Changes to value'), 'value' => self::CONDITION_CHANGE_TO],
+            ['caption' => $this->Translate('Is updated with value'), 'value' => self::CONDITION_UPDATE_WITH]
+        ];
+    }
+
+    private function ConditionNeedsValue(int $Condition): bool
+    {
+        return $Condition === self::CONDITION_CHANGE_TO || $Condition === self::CONDITION_UPDATE_WITH;
+    }
+
+    /**
+     * Registers VM_UPDATE and a reference for every trigger variable; removes registrations of former variables.
+     */
+    private function RegisterTriggerMessages(): void
+    {
+        foreach ($this->GetMessageList() as $senderID => $messages) {
+            if (in_array(VM_UPDATE, $messages, true)) {
+                $this->UnregisterMessage($senderID, VM_UPDATE);
+            }
+        }
+        foreach ($this->GetReferenceList() as $reference) {
+            $this->UnregisterReference($reference);
+        }
+        foreach ($this->GetTriggerList() as $trigger) {
+            if ($trigger['VariableID'] > 0 && IPS_VariableExists($trigger['VariableID'])) {
+                $this->RegisterMessage($trigger['VariableID'], VM_UPDATE);
+                $this->RegisterReference($trigger['VariableID']);
+            }
+        }
+    }
+
+    /**
+     * Current values of the trigger variables as starting point for "change" conditions. Resets the trigger lockouts
+     * (the row positions may have changed). Changes during a restart are not caught up.
+     */
+    private function InitTriggerState(): void
+    {
+        if (!$this->EnterQueueLock()) {
+            return;
+        }
+        try {
+            $state = $this->LoadTriggerState();
+            $state['values'] = [];
+            foreach ($this->GetTriggerList() as $trigger) {
+                if ($trigger['VariableID'] > 0 && IPS_VariableExists($trigger['VariableID'])) {
+                    $state['values'][(string) $trigger['VariableID']] = GetValue($trigger['VariableID']);
+                }
+            }
+            $state['triggerLast'] = [];
+            $this->SaveTriggerState($state);
+            $this->ScheduleQueue($state['queue']);
+        } finally {
+            $this->LeaveQueueLock();
+        }
+    }
+
+    /**
+     * VM_UPDATE of a trigger variable: checks conditions and lockouts and queues the snapshots.
+     */
+    private function HandleVariableUpdate(int $VariableID): void
+    {
+        if (!IPS_VariableExists($VariableID)) {
+            return;
+        }
+        $value = GetValue($VariableID);
+        $type = IPS_GetVariable($VariableID)['VariableType'];
+        $configured = $this->CheckConfiguration() === IS_ACTIVE;
+        $cameras = array_column($this->GetCameraList(), null, 'CameraID');
+        $cameraLockout = max(0, $this->ReadPropertyInteger('CameraLockout'));
+
+        if (!$this->EnterQueueLock()) {
+            $this->SendDebug('Trigger', sprintf('Update of variable %d dropped, queue lock not available', $VariableID), 0);
+            return;
+        }
+        try {
+            $state = $this->LoadTriggerState();
+            $key = (string) $VariableID;
+            // Unknown previous value (e.g. directly after a restart) does not count as a change
+            $changed = array_key_exists($key, $state['values']) && $state['values'][$key] !== $value;
+            $state['values'][$key] = $value;
+            $now = microtime(true);
+
+            foreach ($this->GetTriggerList() as $trigger) {
+                if ($trigger['VariableID'] !== $VariableID || !$this->IsConditionMet($trigger, $changed, $value, $type)) {
+                    continue;
+                }
+                $name = $trigger['Name'] !== '' ? $trigger['Name'] : IPS_GetName($VariableID);
+                if (!$trigger['Active']) {
+                    $this->SendDebug('Trigger', sprintf('%s: inactive', $name), 0);
+                    continue;
+                }
+                if (!$configured) {
+                    $this->SendDebug('Trigger', sprintf('%s: configuration incomplete, no snapshot', $name), 0);
+                    continue;
+                }
+                $last = $state['triggerLast'][(string) $trigger['Index']] ?? null;
+                if ($last !== null && $now - $last < $trigger['Lockout']) {
+                    $this->SendDebug('Trigger', sprintf('%s: lockout time running', $name), 0);
+                    continue;
+                }
+                $state['triggerLast'][(string) $trigger['Index']] = $now;
+
+                foreach ($trigger['Cameras'] as $cameraID) {
+                    if (!($cameras[$cameraID]['Enabled'] ?? false)) {
+                        $this->SendDebug('Trigger', sprintf('%s: camera %s is not active', $name, $cameraID), 0);
+                        continue;
+                    }
+                    $due = $now + $trigger['Delay'];
+                    $lastCamera = $state['cameraLast'][$cameraID] ?? null;
+                    if ($lastCamera !== null && abs($due - $lastCamera) < $cameraLockout) {
+                        $this->SendDebug('Trigger', sprintf('%s: camera %s already has a snapshot within %d s', $name, $cameraID, $cameraLockout), 0);
+                        continue;
+                    }
+                    $state['cameraLast'][$cameraID] = $due;
+                    $state['queue'][] = ['due' => $due, 'camera' => $cameraID, 'trigger' => $name];
+                    $this->SendDebug('Trigger', sprintf('%s: snapshot of %s queued in %d s', $name, $cameraID, $trigger['Delay']), 0);
+                }
+            }
+            $this->SaveTriggerState($state);
+            $this->ScheduleQueue($state['queue']);
+        } finally {
+            $this->LeaveQueueLock();
+        }
+    }
+
+    private function IsConditionMet(array $Trigger, bool $Changed, mixed $Value, int $Type): bool
+    {
+        return match ($Trigger['Condition']) {
+            self::CONDITION_CHANGE      => $Changed,
+            self::CONDITION_UPDATE      => true,
+            self::CONDITION_CHANGE_TO   => $Changed && $this->ValueEquals($Trigger['Value'], $Value, $Type),
+            self::CONDITION_UPDATE_WITH => $this->ValueEquals($Trigger['Value'], $Value, $Type),
+            default                     => false
+        };
+    }
+
+    /**
+     * Compares the JSON-encoded value of SelectValue with the current value, converted to the variable type.
+     */
+    private function ValueEquals(string $Json, mixed $Value, int $Type): bool
+    {
+        $expected = $Json === '' ? null : json_decode($Json, true);
+        if ($expected === null || is_array($expected)) {
+            return false;
+        }
+        return match ($Type) {
+            VARIABLETYPE_BOOLEAN => (bool) $expected === $Value,
+            VARIABLETYPE_INTEGER => (int) $expected === $Value,
+            VARIABLETYPE_FLOAT   => is_float($Value) && abs((float) $expected - $Value) < 1e-9,
+            VARIABLETYPE_STRING  => (string) $expected === $Value,
+            default              => false
+        };
+    }
+
+    /**
+     * Timer: fetches and stores all due snapshots, then sets the timer to the next due entry.
+     */
+    private function ProcessQueue(): void
+    {
+        if (!$this->EnterQueueLock()) {
+            // The timer keeps its interval and tries again
+            return;
+        }
+        try {
+            $state = $this->LoadTriggerState();
+            $now = microtime(true);
+            $due = [];
+            $rest = [];
+            foreach ($state['queue'] as $entry) {
+                // Small tolerance, as the timer has a resolution of milliseconds
+                if ($entry['due'] <= $now + 0.05) {
+                    $due[] = $entry;
+                } else {
+                    $rest[] = $entry;
+                }
+            }
+            $state['queue'] = $rest;
+            $this->SaveTriggerState($state);
+            $this->ScheduleQueue($rest);
+        } finally {
+            $this->LeaveQueueLock();
+        }
+
+        // Network access outside the lock, one camera after the other; an error does not stop the others
+        usort($due, fn (array $A, array $B): int => $A['due'] <=> $B['due']);
+        foreach ($due as $entry) {
+            $result = $this->SnapshotAndStore($entry['camera'], $entry['trigger']);
+            $this->SendDebug('Queue', sprintf('%s / %s: %s', $entry['trigger'], $entry['camera'], $result['ok'] ? 'stored' : $result['message']), 0);
+        }
+    }
+
+    private function ScheduleQueue(array $Queue): void
+    {
+        if (count($Queue) === 0) {
+            $this->SetTimerInterval(self::QUEUE_TIMER, 0);
+            return;
+        }
+        $next = min(array_column($Queue, 'due'));
+        $this->SetTimerInterval(self::QUEUE_TIMER, max(1, (int) ceil(($next - microtime(true)) * 1000)));
+    }
+
+    private function LoadTriggerState(): array
+    {
+        $state = json_decode($this->GetBuffer(self::QUEUE_BUFFER), true);
+        $state = is_array($state) ? $state : [];
+        foreach (['values', 'triggerLast', 'cameraLast', 'queue'] as $key) {
+            if (!is_array($state[$key] ?? null)) {
+                $state[$key] = [];
+            }
+        }
+        return $state;
+    }
+
+    private function SaveTriggerState(array $State): void
+    {
+        $this->SetBuffer(self::QUEUE_BUFFER, (string) json_encode($State));
+    }
+
+    private function EnterQueueLock(): bool
+    {
+        return IPS_SemaphoreEnter('CAR_Queue_' . $this->InstanceID, self::QUEUE_LOCK_TIMEOUT);
+    }
+
+    private function LeaveQueueLock(): void
+    {
+        IPS_SemaphoreLeave('CAR_Queue_' . $this->InstanceID);
     }
 
     private function IsValidCameraID(string $CameraID): bool

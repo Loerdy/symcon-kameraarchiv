@@ -17,3 +17,5 @@ Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 - **Verkleinern** vor dem Speichern per GD (Standard: an, 1280 px, Qualität 75). Ohne GD werden die Bilder unverkleinert gespeichert.
 - **Speicheranzeige** im Formular (Gesamt und je Kamera).
 - **`CAR_DeleteImages`** und Button „Bilder entfernter Kameras löschen“.
+- **Auslöser:** Liste von Variablen mit Bedingung (jede Änderung, jede Aktualisierung, wechselt auf Wert, wird mit Wert aktualisiert), einer oder mehreren Kameras, Verzögerung und Sperrzeit. Zusätzlich ein Mindestabstand je Kamera. Der Name des Auslösers wird am Bild gespeichert.
+- **Warteschlange** der fälligen Snapshots im Arbeitsspeicher, abgearbeitet von einem einzelnen Timer.

@@ -2,7 +2,7 @@
 
 Nimmt Snapshots von Kameras auf und legt sie je Kamera in einem Archiv ab. Als Bildquelle dient zunächst die UniFi Protect Integration API.
 
-> Status: in Entwicklung (Phase 3 von 8). Snapshots werden manuell ausgelöst und im RAM gespeichert. Auslöser und Kachel folgen.
+> Status: in Entwicklung (Phase 4 von 8). Snapshots werden per Auslöser oder manuell aufgenommen und im RAM gespeichert. Kachel, Mail und NAS folgen.
 
 ### Inhaltsverzeichnis
 
@@ -20,10 +20,11 @@ Nimmt Snapshots von Kameras auf und legt sie je Kamera in einem Archiv ab. Als B
 * Abruf der Kameraliste und Auswahl der Kameras im Konfigurationsformular
 * Kennzeichnung von Kameras, für die Protect keine Snapshots liefert (z. B. Drittanbieter-Kameras)
 * Snapshot-Abruf je Kamera, in voller Auflösung, wenn die Kamera Full-HD-Snapshots unterstützt
+* Auslöser: Variablen (Klingel, Türkontakt, Bewegungsmelder …) lösen Snapshots einer oder mehrerer Kameras aus, mit Verzögerung und Sperrzeit
 * Speicherung im RAM als Ringpuffer je Kamera, Anzahl der Bilder je Kamera einstellbar
 * Optionale Verkleinerung vor dem Speichern (Standard: an, 1280 px Breite, JPEG-Qualität 75)
 
-Geplant: Auslöser, Kachel, Mailversand, Ablage auf einem NAS per WebDAV.
+Geplant: Kachel, Mailversand, Ablage auf einem NAS per WebDAV.
 
 ### 2. Voraussetzungen
 
@@ -50,9 +51,27 @@ __Konfigurationsseite__:
 | API-Key | API-Key aus UniFi OS (Control Plane > Integrations). Er hat Administratorrechte und muss geheim bleiben. |
 | Zertifikat nicht prüfen | Für Konsolen mit selbstsigniertem Zertifikat. Standardmäßig aus. |
 | Kameras | Liste der Kameras. Mit „Aktiv“ werden Kameras für das Archiv ausgewählt. „Bilder“ legt fest, wie viele Bilder je Kamera gespeichert werden (1–200, Standard 30). „Gespeichert“ zeigt Anzahl und Größe der gespeicherten Bilder. Rot markierte Kameras liefern keinen Snapshot über Protect, gelb markierte sind nicht verbunden. |
+| Auslöser | Liste der Auslöser, Bearbeiten über das Stift-Symbol. Je Auslöser: Aktiv, Name (erscheint als Auslöser am Bild; leer = Name der Variable), Variable, Bedingung, Wert (bei „Wechselt auf Wert“ und „Wird mit Wert aktualisiert“), Kameras, Verzögerung (0–60 s) und Sperrzeit (0–3600 s, Standard 30 s). Rot markiert: Variable fehlt; gelb: keine Kamera gewählt. |
+| Mindestabstand zwischen zwei Snapshots einer Kamera | Gilt über alle Auslöser hinweg, z. B. wenn Klingel und Türkontakt gleichzeitig auslösen. Standard 5 s, 0 = aus. |
 | Bilder vor dem Speichern verkleinern | Verkleinert Bilder, die breiter als die maximale Breite sind. Kleinere Bilder werden unverändert gespeichert. Standardmäßig an. |
 | Maximale Breite | Breite in Pixeln, das Seitenverhältnis bleibt erhalten. Standard 1280. |
 | JPEG-Qualität | Qualität der verkleinerten Bilder (30–95). Standard 75. |
+
+__Bedingungen__:
+
+| Bedingung | Löst aus, wenn … |
+| --------- | ---------------- |
+| Jede Änderung | sich der Wert ändert |
+| Jede Aktualisierung | die Variable aktualisiert wird, auch mit gleichem Wert |
+| Wechselt auf Wert | sich der Wert auf den gewählten Wert ändert (z. B. Türkontakt wird geöffnet). Zyklische Meldungen mit gleichem Wert lösen nicht erneut aus. |
+| Wird mit Wert aktualisiert | die Variable mit dem gewählten Wert aktualisiert wird, auch ohne Änderung (z. B. Klingel, die bei jedem Druck erneut true meldet) |
+
+__Ablauf der Auslöser__:
+
+* Das Modul reagiert auf Aktualisierungen der Auslöser-Variablen und stellt fällige Snapshots in eine Warteschlange. Ein einzelner Timer nimmt sie zum fälligen Zeitpunkt nacheinander auf.
+* Die Sperrzeit eines Auslösers zählt ab seiner letzten Auslösung. Der Mindestabstand je Kamera verhindert zwei Snapshots derselben Kamera kurz hintereinander.
+* Inaktive Auslöser, inaktive Kameras und eine unvollständige Konfiguration lösen keinen Snapshot aus (Hinweis in der Debug-Ausgabe).
+* Die Warteschlange liegt nur im Arbeitsspeicher. Bei einem Neustart von Symcon gehen noch nicht aufgenommene Snapshots verloren, und Änderungen während des Neustarts werden nicht nachgeholt.
 
 __Testbereich__:
 
@@ -107,4 +126,4 @@ Löscht alle gespeicherten Bilder der Kamera, auch die als „Behalten“ markie
 Beispiel:
 `CAR_DeleteImages(12345, '653fd7e100601403e40003f3');`
 
-Die Funktionen `CAR_UITestConnection`, `CAR_UIFetchCameras`, `CAR_UITestSnapshot` und `CAR_UIDeleteRemovedCameraImages` dienen den Buttons im Konfigurationsformular und sind nicht für Skripte gedacht.
+Die Funktionen `CAR_UITestConnection`, `CAR_UIFetchCameras`, `CAR_UITestSnapshot`, `CAR_UIDeleteRemovedCameraImages`, `CAR_UITriggerForm` und `CAR_UITriggerUpdate` dienen dem Konfigurationsformular und sind nicht für Skripte gedacht.

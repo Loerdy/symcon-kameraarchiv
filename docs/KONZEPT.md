@@ -31,13 +31,13 @@ Zielplattform: SymBox (Flash schonen, RAM knapp: 1–2 GB).
 
 Liste in der Konfiguration; je Eintrag:
 - Variable (Klingel, Reed-Kontakt, Bewegungsmelder …)
-- Bedingung: jede Änderung / Wert = true / Wert = X
+- Bedingung: jede Änderung / jede Aktualisierung / wechselt auf Wert X / wird mit Wert X aktualisiert (X über SelectValue, z. B. true)
 - Kamera(s): eine oder mehrere
 - Verzögerung in Sekunden (z. B. Reed-Kontakt Tür 2 s, damit die Tür ganz offen ist; Klingel 0–1 s)
 - Sperrzeit in Sekunden (gegen Dauerauslösen durch Bewegungsmelder)
 - optional: automatisch per Mail senden
 
-Umsetzung: `RegisterMessage(VM_UPDATE)` auf die Auslöser-Variablen. Fällige Snapshots kommen in eine Warteschlange (Attribut), ein einzelner Timer arbeitet sie ab.
+Umsetzung: `RegisterMessage(VM_UPDATE)` auf die Auslöser-Variablen. Fällige Snapshots kommen in eine Warteschlange (Buffer, nur RAM, kein Flash-Schreiben je Auslösung), ein einzelner Timer arbeitet sie ab. Zusätzlich zur Sperrzeit je Auslöser gilt ein Mindestabstand je Kamera.
 
 Später möglich: Protect-Ereignisse (Klingel G4 Doorbell, Bewegung, Smart Detect) direkt als Auslöser.
 
