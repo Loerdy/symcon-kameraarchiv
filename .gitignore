@@ -1,0 +1,21 @@
+# Editor / OS
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Abhängigkeiten / Tools
+/vendor/
+/node_modules/
+.php-cs-fixer.cache
+.phpunit.result.cache
+
+# Lokale Tests – niemals einchecken
+*.local.json
+cookies.txt
+login.json
+*.jpg
+*.jpeg
+!docs/**/*.jpg
+!docs/**/*.jpeg
