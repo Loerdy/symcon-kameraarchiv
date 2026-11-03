@@ -36,13 +36,31 @@
             "Invalid camera ID": "Ungültige Kamera-ID",
             "Camera %s is not in the camera list": "Kamera %s ist nicht in der Kameraliste",
             "Camera %s is not active": "Kamera %s ist nicht aktiv",
-            "Snapshot received: %s, %d bytes": "Snapshot empfangen: %s, %d Byte",
             "No snapshot received from %s (HTTP %d). Details in the debug output.": "Kein Snapshot von %s erhalten (HTTP %d). Details in der Debug-Ausgabe.",
             "The certificate of the Protect console could not be verified. For a self-signed certificate enable \"Do not verify certificate\".": "Das Zertifikat der Protect-Konsole konnte nicht geprüft werden. Bei einem selbstsignierten Zertifikat die Option „Zertifikat nicht prüfen“ aktivieren.",
             "Yes": "Ja",
             "No": "Nein",
             "OK": "OK",
-            "No snapshot via Protect": "Kein Snapshot über Protect"
+            "No snapshot via Protect": "Kein Snapshot über Protect",
+            "Images": "Bilder",
+            "Stored": "Gespeichert",
+            "Storage (RAM)": "Speicher (RAM)",
+            "Stored images: 0": "Gespeicherte Bilder: 0",
+            "Downscale images before storing": "Bilder vor dem Speichern verkleinern",
+            "Maximum width": "Maximale Breite",
+            "JPEG quality": "JPEG-Qualität",
+            "PHP extension GD is not available: images are stored without resizing.": "PHP-Erweiterung GD ist nicht verfügbar: Bilder werden ohne Verkleinerung gespeichert.",
+            "Delete images of removed cameras": "Bilder entfernter Kameras löschen",
+            "Delete all stored images of cameras that are no longer in the camera list?": "Alle gespeicherten Bilder von Kameras löschen, die nicht mehr in der Kameraliste stehen?",
+            "Images of %d removed cameras deleted": "Bilder von %d entfernten Kameras gelöscht",
+            "Snapshot stored: %s, %d x %d, %d bytes": "Snapshot gespeichert: %s, %d x %d, %d Byte",
+            "Storage is busy, please try again": "Speicher ist belegt, bitte erneut versuchen",
+            "The image index is damaged. Images are not stored.": "Der Bildindex ist beschädigt. Bilder werden nicht gespeichert.",
+            "All images of %s are marked as \"keep\": snapshot not stored": "Alle Bilder von %s sind als „Behalten“ markiert: Snapshot nicht gespeichert",
+            "Image slot %s is used by another object": "Bildplatz %s ist durch ein anderes Objekt belegt",
+            "The image index could not be saved": "Der Bildindex konnte nicht gespeichert werden",
+            "Image index": "Bildindex",
+            "Stored images: %d, %s in RAM": "Gespeicherte Bilder: %d, %s im RAM"
         }
     }
 }

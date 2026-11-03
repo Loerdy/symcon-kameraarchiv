@@ -54,6 +54,17 @@
                     }
                 },
                 {
+                    "caption": "Images",
+                    "name": "Images",
+                    "width": "90px",
+                    "add": 30,
+                    "edit": {
+                        "type": "NumberSpinner",
+                        "minimum": 1,
+                        "maximum": 200
+                    }
+                },
+                {
                     "caption": "Name",
                     "name": "Name",
                     "width": "auto",
@@ -87,6 +98,12 @@
                     "add": ""
                 },
                 {
+                    "caption": "Stored",
+                    "name": "Stored",
+                    "width": "130px",
+                    "add": ""
+                },
+                {
                     "caption": "Camera ID",
                     "name": "CameraID",
                     "width": "220px",
@@ -103,6 +120,43 @@
                 }
             ],
             "values": []
+        },
+        {
+            "type": "Label",
+            "caption": "Storage (RAM)",
+            "bold": true
+        },
+        {
+            "type": "Label",
+            "name": "StorageInfo",
+            "caption": "Stored images: 0"
+        },
+        {
+            "type": "CheckBox",
+            "name": "ResizeEnabled",
+            "caption": "Downscale images before storing"
+        },
+        {
+            "type": "NumberSpinner",
+            "name": "ResizeWidth",
+            "caption": "Maximum width",
+            "suffix": "px",
+            "minimum": 320,
+            "maximum": 3840
+        },
+        {
+            "type": "NumberSpinner",
+            "name": "ResizeQuality",
+            "caption": "JPEG quality",
+            "suffix": "%",
+            "minimum": 30,
+            "maximum": 95
+        },
+        {
+            "type": "Label",
+            "name": "GDMissing",
+            "caption": "PHP extension GD is not available: images are stored without resizing.",
+            "visible": false
         }
     ],
     "actions": [
@@ -141,6 +195,12 @@
                     "onClick": "CAR_UITestSnapshot($id, $SnapshotCamera);"
                 }
             ]
+        },
+        {
+            "type": "Button",
+            "caption": "Delete images of removed cameras",
+            "confirm": "Delete all stored images of cameras that are no longer in the camera list?",
+            "onClick": "CAR_UIDeleteRemovedCameraImages($id);"
         }
     ],
     "status": [

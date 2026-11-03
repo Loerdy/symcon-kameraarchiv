@@ -2,7 +2,7 @@
 
 Nimmt Snapshots von Kameras auf und legt sie je Kamera in einem Archiv ab. Als Bildquelle dient zunächst die UniFi Protect Integration API.
 
-> Status: in Entwicklung (Phase 2 von 8). Snapshots werden derzeit nur abgerufen und in der Debug-Ausgabe gemeldet, aber noch nicht gespeichert.
+> Status: in Entwicklung (Phase 3 von 8). Snapshots werden manuell ausgelöst und im RAM gespeichert. Auslöser und Kachel folgen.
 
 ### Inhaltsverzeichnis
 
@@ -20,13 +20,16 @@ Nimmt Snapshots von Kameras auf und legt sie je Kamera in einem Archiv ab. Als B
 * Abruf der Kameraliste und Auswahl der Kameras im Konfigurationsformular
 * Kennzeichnung von Kameras, für die Protect keine Snapshots liefert (z. B. Drittanbieter-Kameras)
 * Snapshot-Abruf je Kamera, in voller Auflösung, wenn die Kamera Full-HD-Snapshots unterstützt
+* Speicherung im RAM als Ringpuffer je Kamera, Anzahl der Bilder je Kamera einstellbar
+* Optionale Verkleinerung vor dem Speichern (Standard: an, 1280 px Breite, JPEG-Qualität 75)
 
-Geplant: Speicherung im RAM (Ringpuffer), Auslöser, Kachel, Mailversand, Ablage auf einem NAS per WebDAV.
+Geplant: Auslöser, Kachel, Mailversand, Ablage auf einem NAS per WebDAV.
 
 ### 2. Voraussetzungen
 
 * Symcon ab Version 8.1
 * PHP-Erweiterung cURL (in Symcon enthalten)
+* Für die Verkleinerung: PHP-Erweiterung GD. Fehlt sie, werden die Bilder unverkleinert gespeichert.
 * UniFi-OS-Konsole mit UniFi Protect und einem API-Key (Control Plane > Integrations)
 
 ### 3. Software-Installation
@@ -46,7 +49,10 @@ __Konfigurationsseite__:
 | Protect-Konsole | Hostname, IPv4- oder IPv6-Adresse der UniFi-OS-Konsole, optional mit Port (z. B. `192.168.1.1:443`; IPv6 mit Port in eckigen Klammern, z. B. `[fd00::1]:443`). Die Verbindung erfolgt immer per HTTPS. |
 | API-Key | API-Key aus UniFi OS (Control Plane > Integrations). Er hat Administratorrechte und muss geheim bleiben. |
 | Zertifikat nicht prüfen | Für Konsolen mit selbstsigniertem Zertifikat. Standardmäßig aus. |
-| Kameras | Liste der Kameras. Mit „Aktiv“ werden Kameras für das Archiv ausgewählt. Rot markierte Kameras liefern keinen Snapshot über Protect, gelb markierte sind nicht verbunden. |
+| Kameras | Liste der Kameras. Mit „Aktiv“ werden Kameras für das Archiv ausgewählt. „Bilder“ legt fest, wie viele Bilder je Kamera gespeichert werden (1–200, Standard 30). „Gespeichert“ zeigt Anzahl und Größe der gespeicherten Bilder. Rot markierte Kameras liefern keinen Snapshot über Protect, gelb markierte sind nicht verbunden. |
+| Bilder vor dem Speichern verkleinern | Verkleinert Bilder, die breiter als die maximale Breite sind. Kleinere Bilder werden unverändert gespeichert. Standardmäßig an. |
+| Maximale Breite | Breite in Pixeln, das Seitenverhältnis bleibt erhalten. Standard 1280. |
+| JPEG-Qualität | Qualität der verkleinerten Bilder (30–95). Standard 75. |
 
 __Testbereich__:
 
@@ -54,7 +60,18 @@ __Testbereich__:
 | ---- | ------------ |
 | Verbindung testen | Fragt die Kameraliste ab und meldet das Ergebnis. |
 | Kameras abrufen | Trägt die Kameras der Konsole in die Liste ein. Bestehende Auswahl bleibt erhalten. Danach „Übernehmen“ klicken. |
-| Snapshot testen | Ruft einen Snapshot der gewählten aktiven Kamera ab. Details stehen in der Debug-Ausgabe. |
+| Snapshot testen | Ruft einen Snapshot der gewählten aktiven Kamera ab und speichert ihn. Details stehen in der Debug-Ausgabe. |
+| Bilder entfernter Kameras löschen | Löscht nach Rückfrage alle Bilder von Kameras, die nicht mehr in der Kameraliste stehen. |
+
+__Speicherung__:
+
+* Jedes Bild liegt in einem eigenen Medienobjekt (Ident `IMG_<Kamera-ID>_<Nr>`) direkt unterhalb der Instanz. Ein Medienobjekt wird erst beim ersten Bild für diesen Platz angelegt und danach immer wieder überschrieben.
+* Ist die eingestellte Anzahl erreicht, überschreibt ein neues Bild das älteste Bild, das nicht als „Behalten“ markiert ist. Sind alle Bilder einer Kamera markiert, wird kein neues Bild gespeichert.
+* Wird die Anzahl verringert, werden die ältesten nicht markierten Bilder gelöscht. Markierte Bilder bleiben erhalten.
+* Der Index (Zeitpunkt, Auslöser, „Behalten“, Größe) liegt im Medienobjekt „Bildindex“ (Ident `ImageIndex`).
+* Alle diese Medienobjekte sind im Arbeitsspeicher gecacht und werden erst beim Herunterfahren von Symcon geschrieben. Das schont den Flash-Speicher der SymBox. Bei einem Stromausfall gehen die Bilder seit dem letzten Herunterfahren verloren.
+* Name und Sichtbarkeit der Medienobjekte werden nur beim Anlegen gesetzt (versteckt) und können danach frei geändert werden.
+* Ist der Bildindex beschädigt, speichert das Modul keine Bilder mehr und meldet dies im Meldungsfenster. Abhilfe: Medienobjekt „Bildindex“ löschen. Die vorhandenen Bild-Medienobjekte werden dann nach und nach wieder überschrieben.
 
 __Status__:
 
@@ -79,9 +96,15 @@ Noch keine. Eine Kachel ist geplant.
 ### 7. PHP-Befehlsreferenz
 
 `boolean CAR_TakeSnapshot(integer $InstanzID, string $CameraID);`
-Ruft einen Snapshot der Kamera mit der Protect-ID `$CameraID` ab. Die Kamera muss in der Kameraliste aktiv sein. Liefert `true` bei Erfolg. Derzeit wird das Bild nur in der Debug-Ausgabe gemeldet und nicht gespeichert.
+Ruft einen Snapshot der Kamera mit der Protect-ID `$CameraID` ab und speichert ihn im Ringpuffer der Kamera (Auslöser „manual“). Die Kamera muss in der Kameraliste aktiv sein. Liefert `true`, wenn das Bild gespeichert wurde.
 
 Beispiel:
 `CAR_TakeSnapshot(12345, '653fd7e100601403e40003f3');`
 
-Die Funktionen `CAR_UITestConnection`, `CAR_UIFetchCameras` und `CAR_UITestSnapshot` dienen den Buttons im Konfigurationsformular und sind nicht für Skripte gedacht.
+`boolean CAR_DeleteImages(integer $InstanzID, string $CameraID);`
+Löscht alle gespeicherten Bilder der Kamera, auch die als „Behalten“ markierten. Liefert `true` bei Erfolg.
+
+Beispiel:
+`CAR_DeleteImages(12345, '653fd7e100601403e40003f3');`
+
+Die Funktionen `CAR_UITestConnection`, `CAR_UIFetchCameras`, `CAR_UITestSnapshot` und `CAR_UIDeleteRemovedCameraImages` dienen den Buttons im Konfigurationsformular und sind nicht für Skripte gedacht.

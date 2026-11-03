@@ -46,7 +46,7 @@ Später möglich: Protect-Ereignisse (Klingel G4 Doorbell, Bewegung, Smart Detec
 **Stufe 1 – SymBox-RAM (immer)**
 - Fester Slot-Pool pro Kamera aus Bild-Medienobjekten, mit `IPS_SetMediaCached(true)` und unterhalb der Instanz.
 - Ringpuffer: Der neue Snapshot überschreibt den ältesten Slot. Es werden keine Objekte neu angelegt oder gelöscht, und nichts wird bis zum Shutdown auf den Flash geschrieben.
-- Index als JSON-Attribut: Slot, Zeitstempel, Auslöser, Merker „Behalten“.
+- Index als JSON in einem ebenfalls gecachten Dokument-Medienobjekt unterhalb der Instanz: Slot, Zeitstempel, Auslöser, Merker „Behalten“. Kein Attribut, da Attribute laut Doku sofort gespeichert werden (Flash); so bleiben Index und Bilder auf demselben Stand.
 - Optional verkleinern per GD vor dem Speichern (z. B. 1280 px, Qualität 75 → ca. 100 KB).
 - Anzeige des belegten RAM im Formular.
 - Rechnung: 8 Kameras × 30 Bilder × 100 KB ≈ 24 MB.

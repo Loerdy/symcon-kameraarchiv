@@ -27,6 +27,18 @@ class CameraArchive extends IPSModuleStrict
     // 60 PEER_FAILED_VERIFICATION/SSL_CACERT, 77 SSL_CACERT_BADFILE, 83 SSL_ISSUER_ERROR
     private const CURL_TLS_ERRORS = [35, 51, 58, 60, 77, 83];
 
+    // Images per camera (column "Images" of the camera list)
+    private const IMAGES_DEFAULT = 30;
+    private const IMAGES_MIN = 1;
+    private const IMAGES_MAX = 200;
+
+    // Ring buffer: image media below the instance, index in a document medium.
+    // Both are cached (IPS_SetMediaCached), so they live in RAM and are only written at shutdown.
+    private const INDEX_IDENT = 'ImageIndex';
+    private const INDEX_VERSION = 1;
+    private const SLOT_IDENT_PREFIX = 'IMG_';
+    private const STORAGE_LOCK_TIMEOUT = 5000;
+
     public function Create(): void
     {
         // Never delete this line!
@@ -36,6 +48,9 @@ class CameraArchive extends IPSModuleStrict
         $this->RegisterPropertyString('APIKey', '');
         $this->RegisterPropertyBoolean('SkipCertificateCheck', false);
         $this->RegisterPropertyString('Cameras', '[]');
+        $this->RegisterPropertyBoolean('ResizeEnabled', true);
+        $this->RegisterPropertyInteger('ResizeWidth', 1280);
+        $this->RegisterPropertyInteger('ResizeQuality', 75);
 
         // Camera IDs for which Protect delivered no JPEG snapshot. This is runtime knowledge,
         // not user configuration, therefore an attribute and not a property.
@@ -50,7 +65,19 @@ class CameraArchive extends IPSModuleStrict
         // Forget snapshot failures of cameras that are no longer in the list
         $ids = array_column($this->GetCameraList(), 'CameraID');
         $noSnapshot = array_values(array_intersect($this->GetNoSnapshotCameras(), $ids));
-        $this->WriteAttributeString('NoSnapshotCameras', json_encode($noSnapshot));
+        if ($noSnapshot !== $this->GetNoSnapshotCameras()) {
+            $this->WriteAttributeString('NoSnapshotCameras', json_encode($noSnapshot));
+        }
+
+        if ($this->ReadPropertyBoolean('ResizeEnabled') && !$this->IsGDAvailable()) {
+            $this->LogMessage($this->Translate('PHP extension GD is not available: images are stored without resizing.'), KL_WARNING);
+        }
+
+        // Media below the instance are only touched once the kernel is ready (best practice).
+        // During startup, surplus images are removed with the next stored snapshot instead.
+        if (IPS_GetKernelRunlevel() === KR_READY) {
+            $this->TrimAllCameras();
+        }
 
         // No network access here: ApplyChanges also runs during startup and must not block.
         $this->SetStatus($this->CheckConfiguration());
@@ -64,6 +91,11 @@ class CameraArchive extends IPSModuleStrict
         // (store review guideline 13). This allows adding the computed columns.
         $cameras = $this->GetCameraList();
         $this->PatchFormField($form['elements'], 'Cameras', 'values', $this->BuildCameraRows($cameras));
+
+        $this->PatchFormField($form['elements'], 'StorageInfo', 'caption', $this->GetStorageInfo());
+        if ($this->ReadPropertyBoolean('ResizeEnabled') && !$this->IsGDAvailable()) {
+            $this->PatchFormField($form['elements'], 'GDMissing', 'visible', true);
+        }
 
         $options = [];
         foreach ($cameras as $camera) {
@@ -79,16 +111,62 @@ class CameraArchive extends IPSModuleStrict
     }
 
     /**
-     * Fetches a snapshot of the given camera.
-     * Phase 2: The image is only reported via debug output and not stored yet.
+     * Fetches a snapshot of the given camera and stores it in the ring buffer of the camera.
      */
     public function TakeSnapshot(string $CameraID): bool
     {
-        $result = $this->FetchSnapshot($CameraID);
+        $result = $this->SnapshotAndStore($CameraID, 'manual');
         if (!$result['ok']) {
             $this->SendDebug('TakeSnapshot', $result['message'], 0);
         }
         return $result['ok'];
+    }
+
+    /**
+     * Deletes all stored images of the given camera, including images marked as "keep".
+     */
+    public function DeleteImages(string $CameraID): bool
+    {
+        if (!$this->IsValidCameraID($CameraID)) {
+            $this->SendDebug('DeleteImages', 'Invalid camera ID', 0);
+            return false;
+        }
+        if (!$this->EnterStorageLock()) {
+            return false;
+        }
+        try {
+            $index = $this->LoadIndex();
+            if ($index === null) {
+                return false;
+            }
+            $inIndex = isset($index['cameras'][$CameraID]);
+            $deleted = $this->DeleteCameraImages($index, $CameraID);
+            if ($inIndex && !$this->SaveIndex($index)) {
+                return false;
+            }
+            $this->SendDebug('DeleteImages', sprintf('%s: %d images deleted', $CameraID, $deleted), 0);
+            return true;
+        } finally {
+            $this->LeaveStorageLock();
+        }
+    }
+
+    /**
+     * Button "Delete images of removed cameras": Deletes the images of cameras that are no longer in the camera list.
+     */
+    public function UIDeleteRemovedCameraImages(): void
+    {
+        $known = array_column($this->GetCameraList(), 'CameraID');
+        $removed = array_diff($this->GetStoredCameraIDs(), $known);
+
+        $count = 0;
+        foreach ($removed as $cameraID) {
+            if ($this->DeleteImages($cameraID)) {
+                $count++;
+            }
+        }
+        $this->UpdateFormField('StorageInfo', 'caption', $this->GetStorageInfo());
+        echo sprintf($this->Translate('Images of %d removed cameras deleted'), $count);
     }
 
     /**
@@ -112,10 +190,10 @@ class CameraArchive extends IPSModuleStrict
             return;
         }
 
-        // Keep the selection of cameras that are already known
-        $enabled = [];
+        // Keep the settings of cameras that are already known
+        $known = [];
         foreach ($this->GetCameraList() as $camera) {
-            $enabled[$camera['CameraID']] = $camera['Enabled'];
+            $known[$camera['CameraID']] = $camera;
         }
 
         $cameras = [];
@@ -125,7 +203,8 @@ class CameraArchive extends IPSModuleStrict
             }
             $flags = isset($entry['featureFlags']) && is_array($entry['featureFlags']) ? $entry['featureFlags'] : [];
             $cameras[] = [
-                'Enabled'  => $enabled[$entry['id']] ?? false,
+                'Enabled'  => $known[$entry['id']]['Enabled'] ?? false,
+                'Images'   => $known[$entry['id']]['Images'] ?? self::IMAGES_DEFAULT,
                 'Name'     => is_string($entry['name'] ?? null) ? $entry['name'] : '',
                 'Type'     => is_string($entry['type'] ?? null) ? $entry['type'] : '',
                 'State'    => is_string($entry['state'] ?? null) ? $entry['state'] : '',
@@ -149,15 +228,41 @@ class CameraArchive extends IPSModuleStrict
         }
 
         $markedBefore = in_array($CameraID, $this->GetNoSnapshotCameras(), true);
-        $result = $this->FetchSnapshot($CameraID);
+        $result = $this->SnapshotAndStore($CameraID, 'manual');
         $markedAfter = in_array($CameraID, $this->GetNoSnapshotCameras(), true);
 
         // Show a changed "Snapshot" column in the open form
         if ($markedBefore !== $markedAfter) {
             $this->UpdateFormField('Cameras', 'values', json_encode($this->BuildCameraRows($this->GetCameraList())));
         }
+        // Only the label: updating the list would mark the configuration as changed
+        $this->UpdateFormField('StorageInfo', 'caption', $this->GetStorageInfo());
 
         echo $result['message'];
+    }
+
+    /**
+     * Fetches a snapshot and stores it. Result: ok, message.
+     */
+    private function SnapshotAndStore(string $CameraID, string $Trigger): array
+    {
+        $result = $this->FetchSnapshot($CameraID);
+        if (!$result['ok']) {
+            return $result;
+        }
+
+        $image = $this->ResizeImage($result['image']);
+        $stored = $this->StoreImage($result['camera'], $image, $Trigger);
+        if (!$stored['ok']) {
+            return ['ok' => false, 'message' => $stored['message']];
+        }
+        return ['ok' => true, 'message' => sprintf(
+            $this->Translate('Snapshot stored: %s, %d x %d, %d bytes'),
+            $result['label'],
+            $image['width'],
+            $image['height'],
+            strlen($image['data'])
+        )];
     }
 
     /**
@@ -225,7 +330,7 @@ class CameraArchive extends IPSModuleStrict
     }
 
     /**
-     * Requests a snapshot. Result: ok, message.
+     * Requests a snapshot. Result: ok, message; on success also image (JPEG bytes), camera, label.
      */
     private function FetchSnapshot(string $CameraID): array
     {
@@ -234,8 +339,7 @@ class CameraArchive extends IPSModuleStrict
             return ['ok' => false, 'message' => $message];
         }
 
-        // Protect camera IDs are hex strings; anything else must not end up in the URL path
-        if (preg_match('/^[A-Za-z0-9]+$/', $CameraID) !== 1) {
+        if (!$this->IsValidCameraID($CameraID)) {
             return ['ok' => false, 'message' => $this->Translate('Invalid camera ID')];
         }
 
@@ -277,8 +381,7 @@ class CameraArchive extends IPSModuleStrict
                 $camera['FullHD'] ? 'yes' : 'no'
             ), 0);
             $this->SendDebug('Snapshot (first bytes)', substr($body, 0, 16), 1);
-            // Phase 3: store the image in the RAM ring buffer
-            return ['ok' => true, 'message' => sprintf($this->Translate('Snapshot received: %s, %d bytes'), $label, strlen($body))];
+            return ['ok' => true, 'message' => '', 'image' => $body, 'camera' => $camera, 'label' => $label];
         }
 
         // No JPEG: The console answered, but cannot deliver a snapshot for this camera
@@ -412,8 +515,12 @@ class CameraArchive extends IPSModuleStrict
             if (!is_array($entry) || !is_string($entry['CameraID'] ?? null) || $entry['CameraID'] === '') {
                 continue;
             }
+            // Rows saved before the column "Images" existed get the default
+            $images = $entry['Images'] ?? self::IMAGES_DEFAULT;
+            $images = is_int($images) ? max(self::IMAGES_MIN, min(self::IMAGES_MAX, $images)) : self::IMAGES_DEFAULT;
             $cameras[] = [
                 'Enabled'  => ($entry['Enabled'] ?? false) === true,
+                'Images'   => $images,
                 'Name'     => (string) ($entry['Name'] ?? ''),
                 'Type'     => (string) ($entry['Type'] ?? ''),
                 'State'    => (string) ($entry['State'] ?? ''),
@@ -430,6 +537,7 @@ class CameraArchive extends IPSModuleStrict
     private function BuildCameraRows(array $Cameras): array
     {
         $noSnapshot = $this->GetNoSnapshotCameras();
+        $statistics = $this->GetStorageStatistics();
         $rows = [];
         foreach ($Cameras as $camera) {
             // Third-party cameras have a type without "UVC" prefix. Fallback: a snapshot request returned no JPEG.
@@ -440,9 +548,15 @@ class CameraArchive extends IPSModuleStrict
             } elseif ($camera['State'] !== 'CONNECTED') {
                 $rowColor = '#FFFFC0';
             }
+            $stored = '?';
+            if ($statistics !== null) {
+                $cameraStatistics = $statistics[$camera['CameraID']] ?? ['count' => 0, 'bytes' => 0];
+                $stored = sprintf('%d (%s)', $cameraStatistics['count'], $this->FormatBytes($cameraStatistics['bytes']));
+            }
             $rows[] = $camera + [
                 'FullHDText' => $this->Translate($camera['FullHD'] ? 'Yes' : 'No'),
                 'Snapshot'   => $this->Translate($supported ? 'OK' : 'No snapshot via Protect'),
+                'Stored'     => $stored,
                 'rowColor'   => $rowColor
             ];
         }
@@ -467,6 +581,463 @@ class CameraArchive extends IPSModuleStrict
             return;
         }
         $this->WriteAttributeString('NoSnapshotCameras', json_encode($ids));
+    }
+
+    private function IsValidCameraID(string $CameraID): bool
+    {
+        // Protect camera IDs are hex strings; they end up in URL paths and idents
+        return preg_match('/^[A-Za-z0-9]+$/', $CameraID) === 1;
+    }
+
+    private function IsGDAvailable(): bool
+    {
+        return function_exists('imagecreatefromstring') && function_exists('imagescale') && function_exists('imagejpeg');
+    }
+
+    /**
+     * Downscales the JPEG to the configured width if enabled and necessary. Result: data, width, height.
+     * Images are never enlarged. On any problem the original image is kept.
+     */
+    private function ResizeImage(string $Jpeg): array
+    {
+        $size = getimagesizefromstring($Jpeg);
+        $width = is_array($size) ? (int) $size[0] : 0;
+        $height = is_array($size) ? (int) $size[1] : 0;
+        $original = ['data' => $Jpeg, 'width' => $width, 'height' => $height];
+
+        $maxWidth = $this->ReadPropertyInteger('ResizeWidth');
+        if (!$this->ReadPropertyBoolean('ResizeEnabled') || $maxWidth <= 0 || $width <= $maxWidth || $height <= 0) {
+            return $original;
+        }
+        if (!$this->IsGDAvailable()) {
+            $this->SendDebug('Resize', 'GD not available, image stored without resizing', 0);
+            return $original;
+        }
+
+        // Decoded images need about 4 bytes per pixel (source and target), plus some headroom
+        $targetHeight = (int) ceil($height * $maxWidth / $width);
+        if (!$this->HasMemoryFor(($width * $height + $maxWidth * $targetHeight) * 5)) {
+            $this->SendDebug('Resize', sprintf('Not enough PHP memory for %d x %d, image stored without resizing', $width, $height), 0);
+            return $original;
+        }
+
+        // The return value is checked, a failure is reported in the debug output
+        $source = @imagecreatefromstring($Jpeg);
+        if ($source === false) {
+            $this->SendDebug('Resize', 'Image could not be decoded, stored without resizing', 0);
+            return $original;
+        }
+        $target = imagescale($source, $maxWidth);
+        unset($source);
+        if ($target === false) {
+            $this->SendDebug('Resize', 'Image could not be scaled, stored without resizing', 0);
+            return $original;
+        }
+
+        $quality = max(1, min(100, $this->ReadPropertyInteger('ResizeQuality')));
+        ob_start();
+        $ok = imagejpeg($target, null, $quality);
+        $data = (string) ob_get_clean();
+        if (!$ok || $data === '') {
+            $this->SendDebug('Resize', 'Image could not be encoded, stored without resizing', 0);
+            return $original;
+        }
+
+        $resized = ['data' => $data, 'width' => imagesx($target), 'height' => imagesy($target)];
+        $this->SendDebug('Resize', sprintf(
+            '%d x %d, %d bytes -> %d x %d, %d bytes',
+            $width,
+            $height,
+            strlen($Jpeg),
+            $resized['width'],
+            $resized['height'],
+            strlen($data)
+        ), 0);
+        return $resized;
+    }
+
+    private function HasMemoryFor(int $Bytes): bool
+    {
+        $limit = trim((string) ini_get('memory_limit'));
+        if ($limit === '' || $limit === '-1') {
+            return true;
+        }
+        $exponent = ['K' => 1, 'M' => 2, 'G' => 3][strtoupper(substr($limit, -1))] ?? 0;
+        return memory_get_usage() + $Bytes < (int) $limit * (1024 ** $exponent);
+    }
+
+    /**
+     * Stores an image in the ring buffer of the camera. Result: ok, message.
+     */
+    private function StoreImage(array $Camera, array $Image, string $Trigger): array
+    {
+        if (!$this->EnterStorageLock()) {
+            return ['ok' => false, 'message' => $this->Translate('Storage is busy, please try again')];
+        }
+        try {
+            $index = $this->LoadIndex();
+            if ($index === null) {
+                return ['ok' => false, 'message' => $this->Translate('The image index is damaged. Images are not stored.')];
+            }
+
+            $cameraID = $Camera['CameraID'];
+            $label = $Camera['Name'] !== '' ? $Camera['Name'] : $cameraID;
+            $entries = $index['cameras'][$cameraID] ?? [];
+            $trimmed = $this->TrimEntries($entries, $cameraID, $Camera['Images']) > 0;
+
+            $slot = $this->ChooseSlot($entries, $Camera['Images']);
+            if ($slot === 0) {
+                if ($trimmed) {
+                    $index['cameras'][$cameraID] = $entries;
+                    $this->SaveIndex($index);
+                }
+                $message = sprintf($this->Translate('All images of %s are marked as "keep": snapshot not stored'), $label);
+                $this->LogMessage($message, KL_WARNING);
+                return ['ok' => false, 'message' => $message];
+            }
+
+            $ident = $this->SlotIdent($cameraID, $slot);
+            $mediaID = $this->FindMedia($ident, MEDIATYPE_IMAGE);
+            if ($mediaID < 0) {
+                if ($trimmed) {
+                    $index['cameras'][$cameraID] = $entries;
+                    $this->SaveIndex($index);
+                }
+                $this->SendDebug('Storage', sprintf('Ident %s is used by another object, slot skipped', $ident), 0);
+                return ['ok' => false, 'message' => sprintf($this->Translate('Image slot %s is used by another object'), $ident)];
+            }
+            if ($mediaID === 0) {
+                $mediaID = $this->CreateCachedMedia(
+                    MEDIATYPE_IMAGE,
+                    $ident,
+                    sprintf('media/CameraArchive_%d_%s_%03d.jpg', $this->InstanceID, $cameraID, $slot),
+                    sprintf('%s %02d', $label, $slot)
+                );
+            } elseif (!IPS_GetMedia($mediaID)['MediaIsCached']) {
+                // Caching is the flash protection of this module, not a user setting
+                IPS_SetMediaCached($mediaID, true);
+            }
+            IPS_SetMediaContent($mediaID, base64_encode($Image['data']));
+
+            $index['seq']++;
+            $entries = array_values(array_filter($entries, fn (array $Entry): bool => $Entry['slot'] !== $slot));
+            $entries[] = [
+                'slot'    => $slot,
+                'seq'     => $index['seq'],
+                'time'    => time(),
+                'trigger' => $Trigger,
+                'keep'    => false,
+                'size'    => strlen($Image['data']),
+                'width'   => $Image['width'],
+                'height'  => $Image['height']
+            ];
+            $index['cameras'][$cameraID] = $entries;
+            if (!$this->SaveIndex($index)) {
+                return ['ok' => false, 'message' => $this->Translate('The image index could not be saved')];
+            }
+            $this->SendDebug('Storage', sprintf('%s: slot %d, %d bytes, %d images', $label, $slot, strlen($Image['data']), count($entries)), 0);
+            return ['ok' => true, 'message' => ''];
+        } finally {
+            $this->LeaveStorageLock();
+        }
+    }
+
+    /**
+     * Free slot number while the pool is not full, otherwise the slot of the oldest image not marked as "keep".
+     * Returns 0 if no slot can be used.
+     */
+    private function ChooseSlot(array $Entries, int $Limit): int
+    {
+        if (count($Entries) < $Limit) {
+            $used = array_column($Entries, 'slot');
+            for ($slot = 1; $slot <= $Limit; $slot++) {
+                if (!in_array($slot, $used, true)) {
+                    return $slot;
+                }
+            }
+        }
+        $oldest = null;
+        foreach ($Entries as $entry) {
+            if (!$entry['keep'] && ($oldest === null || $entry['seq'] < $oldest['seq'])) {
+                $oldest = $entry;
+            }
+        }
+        return $oldest === null ? 0 : $oldest['slot'];
+    }
+
+    /**
+     * Removes the oldest images not marked as "keep" while the camera has more images than allowed.
+     * Images marked as "keep" are never removed here. Returns the number of removed images.
+     */
+    private function TrimEntries(array &$Entries, string $CameraID, int $Limit): int
+    {
+        usort($Entries, fn (array $A, array $B): int => $A['seq'] <=> $B['seq']);
+        $removed = 0;
+        while (count($Entries) > $Limit) {
+            $position = null;
+            foreach ($Entries as $key => $entry) {
+                if (!$entry['keep']) {
+                    $position = $key;
+                    break;
+                }
+            }
+            if ($position === null) {
+                break;
+            }
+            $this->DeleteSlotMedia($this->SlotIdent($CameraID, $Entries[$position]['slot']));
+            array_splice($Entries, $position, 1);
+            $removed++;
+        }
+        return $removed;
+    }
+
+    /**
+     * Applies reduced image counts of all cameras in the list.
+     */
+    private function TrimAllCameras(): void
+    {
+        if (!$this->EnterStorageLock()) {
+            return;
+        }
+        try {
+            $index = $this->LoadIndex();
+            if ($index === null) {
+                return;
+            }
+            $removed = 0;
+            foreach ($this->GetCameraList() as $camera) {
+                if (!isset($index['cameras'][$camera['CameraID']])) {
+                    continue;
+                }
+                $entries = $index['cameras'][$camera['CameraID']];
+                $count = $this->TrimEntries($entries, $camera['CameraID'], $camera['Images']);
+                if ($count > 0) {
+                    $index['cameras'][$camera['CameraID']] = $entries;
+                    $removed += $count;
+                }
+            }
+            if ($removed > 0) {
+                $this->SaveIndex($index);
+                $this->SendDebug('Storage', sprintf('%d surplus images removed', $removed), 0);
+            }
+        } finally {
+            $this->LeaveStorageLock();
+        }
+    }
+
+    /**
+     * Deletes all images of a camera from the index and below the instance (also slots missing in the index).
+     * Returns the number of deleted media.
+     */
+    private function DeleteCameraImages(array &$Index, string $CameraID): int
+    {
+        $deleted = 0;
+        foreach ($this->GetSlotMedia() as $slot) {
+            if ($slot['camera'] === $CameraID && $this->DeleteSlotMedia($slot['ident'])) {
+                $deleted++;
+            }
+        }
+        unset($Index['cameras'][$CameraID]);
+        return $deleted;
+    }
+
+    /**
+     * Camera IDs with stored images, from the index and from the slot media below the instance.
+     */
+    private function GetStoredCameraIDs(): array
+    {
+        $ids = array_column($this->GetSlotMedia(), 'camera');
+        $index = $this->LoadIndex();
+        if ($index !== null) {
+            $ids = array_merge($ids, array_map('strval', array_keys($index['cameras'])));
+        }
+        return array_values(array_unique($ids));
+    }
+
+    /**
+     * Slot media below the instance: ident, camera, slot.
+     */
+    private function GetSlotMedia(): array
+    {
+        $slots = [];
+        foreach (IPS_GetChildrenIDs($this->InstanceID) as $childID) {
+            $ident = IPS_GetObject($childID)['ObjectIdent'];
+            if (preg_match('/^' . self::SLOT_IDENT_PREFIX . '([A-Za-z0-9]+)_(\d+)$/', $ident, $match) === 1) {
+                $slots[] = ['ident' => $ident, 'camera' => $match[1], 'slot' => (int) $match[2]];
+            }
+        }
+        return $slots;
+    }
+
+    private function SlotIdent(string $CameraID, int $Slot): string
+    {
+        return sprintf('%s%s_%03d', self::SLOT_IDENT_PREFIX, $CameraID, $Slot);
+    }
+
+    /**
+     * Deletes the image medium with the given ident. Media with child objects (added by the user) are kept.
+     */
+    private function DeleteSlotMedia(string $Ident): bool
+    {
+        $mediaID = $this->FindMedia($Ident, MEDIATYPE_IMAGE);
+        if ($mediaID <= 0) {
+            return false;
+        }
+        if (IPS_GetObject($mediaID)['HasChildren']) {
+            $this->SendDebug('Storage', sprintf('%s has child objects and is not deleted', $Ident), 0);
+            return false;
+        }
+        return IPS_DeleteMedia($mediaID, true);
+    }
+
+    /**
+     * ID of the own medium with the ident: 0 if it does not exist, -1 if the ident belongs to another kind of object.
+     */
+    private function FindMedia(string $Ident, int $MediaType): int
+    {
+        // The warning for a missing ident is expected here, the result is checked
+        $id = @IPS_GetObjectIDByIdent($Ident, $this->InstanceID);
+        if ($id === false) {
+            return 0;
+        }
+        if (!IPS_MediaExists($id) || IPS_GetMedia($id)['MediaType'] !== $MediaType) {
+            return -1;
+        }
+        return $id;
+    }
+
+    private function CreateCachedMedia(int $MediaType, string $Ident, string $File, string $Name): int
+    {
+        $mediaID = IPS_CreateMedia($MediaType);
+        IPS_SetMediaFile($mediaID, $File, false);
+        // Cache before the first content is written: the content then stays in RAM until shutdown (flash protection)
+        IPS_SetMediaCached($mediaID, true);
+        IPS_SetParent($mediaID, $this->InstanceID);
+        IPS_SetIdent($mediaID, $Ident);
+        // Name and visibility are only set once; afterwards they belong to the user
+        IPS_SetName($mediaID, $Name);
+        IPS_SetHidden($mediaID, true);
+        return $mediaID;
+    }
+
+    /**
+     * Index of all stored images, or null if it is damaged. A damaged index is never overwritten.
+     */
+    private function LoadIndex(): ?array
+    {
+        $empty = ['version' => self::INDEX_VERSION, 'seq' => 0, 'cameras' => []];
+        $mediaID = $this->FindMedia(self::INDEX_IDENT, MEDIATYPE_DOCUMENT);
+        if ($mediaID === 0) {
+            return $empty;
+        }
+
+        $index = null;
+        if ($mediaID > 0) {
+            $raw = base64_decode(IPS_GetMediaContent($mediaID), true);
+            $index = is_string($raw) ? json_decode($raw, true) : null;
+        }
+        if (!$this->IsValidIndex($index)) {
+            // Report only once per runtime
+            if ($this->GetBuffer('IndexErrorReported') === '') {
+                $this->SetBuffer('IndexErrorReported', '1');
+                $this->LogMessage($this->Translate('The image index is damaged. Images are not stored.'), KL_ERROR);
+            }
+            return null;
+        }
+        return $index;
+    }
+
+    private function IsValidIndex(mixed $Index): bool
+    {
+        if (!is_array($Index) || ($Index['version'] ?? null) !== self::INDEX_VERSION || !is_int($Index['seq'] ?? null) || !is_array($Index['cameras'] ?? null)) {
+            return false;
+        }
+        foreach ($Index['cameras'] as $cameraID => $entries) {
+            if (!$this->IsValidCameraID((string) $cameraID) || !is_array($entries) || !array_is_list($entries)) {
+                return false;
+            }
+            foreach ($entries as $entry) {
+                if (!is_array($entry)
+                    || !is_int($entry['slot'] ?? null) || $entry['slot'] < 1
+                    || !is_int($entry['seq'] ?? null) || !is_int($entry['time'] ?? null)
+                    || !is_string($entry['trigger'] ?? null) || !is_bool($entry['keep'] ?? null)
+                    || !is_int($entry['size'] ?? null) || !is_int($entry['width'] ?? null) || !is_int($entry['height'] ?? null)) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
+    private function SaveIndex(array $Index): bool
+    {
+        $json = json_encode($Index);
+        if ($json === false) {
+            $this->SendDebug('Storage', 'Index could not be encoded: ' . json_last_error_msg(), 0);
+            return false;
+        }
+        $mediaID = $this->FindMedia(self::INDEX_IDENT, MEDIATYPE_DOCUMENT);
+        if ($mediaID < 0) {
+            $this->SendDebug('Storage', sprintf('Ident %s is used by another object', self::INDEX_IDENT), 0);
+            return false;
+        }
+        if ($mediaID === 0) {
+            $mediaID = $this->CreateCachedMedia(
+                MEDIATYPE_DOCUMENT,
+                self::INDEX_IDENT,
+                sprintf('media/CameraArchive_%d_index.json', $this->InstanceID),
+                $this->Translate('Image index')
+            );
+        }
+        return IPS_SetMediaContent($mediaID, base64_encode($json));
+    }
+
+    /**
+     * Number of images and bytes per camera, or null if the index is damaged.
+     */
+    private function GetStorageStatistics(): ?array
+    {
+        $index = $this->LoadIndex();
+        if ($index === null) {
+            return null;
+        }
+        $statistics = [];
+        foreach ($index['cameras'] as $cameraID => $entries) {
+            $statistics[(string) $cameraID] = ['count' => count($entries), 'bytes' => array_sum(array_column($entries, 'size'))];
+        }
+        return $statistics;
+    }
+
+    private function GetStorageInfo(): string
+    {
+        $statistics = $this->GetStorageStatistics();
+        if ($statistics === null) {
+            return $this->Translate('The image index is damaged. Images are not stored.');
+        }
+        return sprintf(
+            $this->Translate('Stored images: %d, %s in RAM'),
+            array_sum(array_column($statistics, 'count')),
+            $this->FormatBytes(array_sum(array_column($statistics, 'bytes')))
+        );
+    }
+
+    private function FormatBytes(int $Bytes): string
+    {
+        return sprintf('%.1f MB', $Bytes / 1048576);
+    }
+
+    private function EnterStorageLock(): bool
+    {
+        if (IPS_SemaphoreEnter('CAR_Storage_' . $this->InstanceID, self::STORAGE_LOCK_TIMEOUT)) {
+            return true;
+        }
+        $this->SendDebug('Storage', 'Storage lock not available', 0);
+        return false;
+    }
+
+    private function LeaveStorageLock(): void
+    {
+        IPS_SemaphoreLeave('CAR_Storage_' . $this->InstanceID);
     }
 
     /**
