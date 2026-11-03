@@ -207,6 +207,15 @@ class TriggerTest extends TestCase
         $dialog = array_column(json_decode(CAR_UITriggerForm($this->id, $variable, 2), true), null, 'name');
         $this->assertTrue($dialog['Value']['visible']);
         $this->assertSame($variable, $dialog['Value']['variableID']);
+        $this->assertArrayNotHasKey('ValueHint', $dialog);
+
+        // New row or deleted variable: SelectValue needs an existing variable, a hint is shown instead
+        foreach ([0, 999999] as $missing) {
+            $dialog = array_column(json_decode(CAR_UITriggerForm($this->id, $missing, 2), true), null, 'name');
+            $this->assertArrayNotHasKey('Value', $dialog);
+            $this->assertTrue($dialog['ValueHint']['visible']);
+            $this->assertStringEndsWith('$Condition, false);', $dialog['VariableID']['onChange']);
+        }
 
         $form = json_decode(IPS_GetConfigurationForm($this->id), true);
         $elements = array_column($form['elements'], null, 'name');

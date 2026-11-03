@@ -223,21 +223,33 @@ class CameraArchive extends IPSModuleStrict
      */
     public function UITriggerForm(int $VariableID, int $Condition): string
     {
-        $update = 'CAR_UITriggerUpdate($id, $VariableID, $Condition);';
+        // SelectValue loads type and profile of its variable, so it needs an existing variable.
+        // A new row has no variable yet: then a hint is shown instead (value is set when editing the row again).
+        $hasValueField = $VariableID > 0 && IPS_VariableExists($VariableID);
+        $update = 'CAR_UITriggerUpdate($id, $VariableID, $Condition, ' . ($hasValueField ? 'true' : 'false') . ');';
         $elements = [
             ['type' => 'CheckBox', 'name' => 'Active', 'caption' => $this->Translate('Active')],
             ['type' => 'ValidationTextBox', 'name' => 'Name', 'caption' => $this->Translate('Name (empty: name of the variable)')],
             ['type' => 'SelectVariable', 'name' => 'VariableID', 'caption' => $this->Translate('Variable'), 'onChange' => $update],
-            ['type' => 'Select', 'name' => 'Condition', 'caption' => $this->Translate('Condition'), 'options' => $this->GetConditionOptions(), 'onChange' => $update],
-            [
+            ['type' => 'Select', 'name' => 'Condition', 'caption' => $this->Translate('Condition'), 'options' => $this->GetConditionOptions(), 'onChange' => $update]
+        ];
+        if ($hasValueField) {
+            $elements[] = [
                 'type'       => 'SelectValue',
                 'name'       => 'Value',
                 'caption'    => $this->Translate('Value'),
-                'variableID' => max(1, $VariableID),
-                'visible'    => $VariableID > 0 && $this->ConditionNeedsValue($Condition)
-            ],
-            ['type' => 'Label', 'caption' => $this->Translate('Cameras'), 'bold' => true]
-        ];
+                'variableID' => $VariableID,
+                'visible'    => $this->ConditionNeedsValue($Condition)
+            ];
+        } else {
+            $elements[] = [
+                'type'    => 'Label',
+                'name'    => 'ValueHint',
+                'caption' => $this->Translate('Select the variable and confirm with OK, then open the trigger again to set the value.'),
+                'visible' => $this->ConditionNeedsValue($Condition)
+            ];
+        }
+        $elements[] = ['type' => 'Label', 'caption' => $this->Translate('Cameras'), 'bold' => true];
         $cameras = $this->GetCameraList();
         foreach ($cameras as $camera) {
             $caption = $camera['Name'] !== '' ? $camera['Name'] : $camera['CameraID'];
@@ -257,12 +269,17 @@ class CameraArchive extends IPSModuleStrict
     /**
      * onChange of variable and condition in the trigger dialog: adapts the value field.
      */
-    public function UITriggerUpdate(int $VariableID, int $Condition): void
+    public function UITriggerUpdate(int $VariableID, int $Condition, bool $HasValueField): void
     {
-        if ($VariableID > 0) {
+        $needsValue = $this->ConditionNeedsValue($Condition);
+        if (!$HasValueField) {
+            $this->UpdateFormField('ValueHint', 'visible', $needsValue);
+            return;
+        }
+        if ($VariableID > 0 && IPS_VariableExists($VariableID)) {
             $this->UpdateFormField('Value', 'variableID', $VariableID);
         }
-        $this->UpdateFormField('Value', 'visible', $VariableID > 0 && $this->ConditionNeedsValue($Condition));
+        $this->UpdateFormField('Value', 'visible', $needsValue);
     }
 
     /**

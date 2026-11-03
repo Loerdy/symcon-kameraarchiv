@@ -77,7 +77,8 @@
             "inactive": "inaktiv",
             "The camera list is empty. Fetch the cameras first.": "Die Kameraliste ist leer. Bitte zuerst die Kameras abrufen.",
             "Lockout time of this trigger": "Sperrzeit dieses Auslösers",
-            "none": "keine"
+            "none": "keine",
+            "Select the variable and confirm with OK, then open the trigger again to set the value.": "Variable auswählen und mit OK bestätigen, danach den Auslöser erneut öffnen, um den Wert festzulegen."
         }
     }
 }
