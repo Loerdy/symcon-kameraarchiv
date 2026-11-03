@@ -43,7 +43,7 @@ __Konfigurationsseite__:
 
 | Name | Beschreibung |
 | ---- | ------------ |
-| Protect-Konsole | Hostname oder IP-Adresse der UniFi-OS-Konsole, optional mit Port. Die Verbindung erfolgt immer per HTTPS. |
+| Protect-Konsole | Hostname, IPv4- oder IPv6-Adresse der UniFi-OS-Konsole, optional mit Port (z. B. `192.168.1.1:443`; IPv6 mit Port in eckigen Klammern, z. B. `[fd00::1]:443`). Die Verbindung erfolgt immer per HTTPS. |
 | API-Key | API-Key aus UniFi OS (Control Plane > Integrations). Er hat Administratorrechte und muss geheim bleiben. |
 | Zertifikat nicht prüfen | Für Konsolen mit selbstsigniertem Zertifikat. Standardmäßig aus. |
 | Kameras | Liste der Kameras. Mit „Aktiv“ werden Kameras für das Archiv ausgewählt. Rot markierte Kameras liefern keinen Snapshot über Protect, gelb markierte sind nicht verbunden. |

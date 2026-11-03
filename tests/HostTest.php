@@ -49,11 +49,20 @@ class HostTest extends TestCase
         ob_end_clean();
 
         $urls = [];
+        $curlErrors = [];
         foreach (IPS\DebugServer::getDebugMessages($id) as $message) {
             if ($message['Message'] === 'Request') {
                 $urls[] = $message['Data'];
             }
+            if ($message['Message'] === 'cURL error') {
+                $curlErrors[] = $message['Data'];
+            }
         }
         $this->assertSame(['GET https://' . $expectedHost . '/proxy/protect/integration/v1/cameras'], $urls);
+
+        // curl must accept the URL: error 3 is CURLE_URL_MALFORMAT
+        foreach ($curlErrors as $error) {
+            $this->assertStringStartsNotWith('3:', $error);
+        }
     }
 }
