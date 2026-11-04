@@ -21,7 +21,7 @@ Nimmt Snapshots von Kameras auf und legt sie je Kamera in einem Archiv ab. Als B
 * Kennzeichnung von Kameras, für die Protect keine Snapshots liefert (z. B. Drittanbieter-Kameras)
 * Snapshot-Abruf je Kamera, in voller Auflösung, wenn die Kamera Full-HD-Snapshots unterstützt
 * Auslöser: Variablen (Klingel, Türkontakt, Bewegungsmelder …) lösen Snapshots einer oder mehrerer Kameras aus, mit Verzögerung und Sperrzeit
-* Speicherung im RAM als Ringpuffer je Kamera, Anzahl der Bilder je Kamera einstellbar
+* Speicherung als Ringpuffer je Kamera, standardmäßig im RAM (abschaltbar für Systeme ohne Flash-Speicher), Anzahl der Bilder je Kamera einstellbar
 * Optionale Verkleinerung vor dem Speichern (Standard: an, 1280 px Breite, JPEG-Qualität 75)
 * Kachel für die Visualisierung: Kameraauswahl, neuestes Bild groß, Archivleiste mit Vorschaubildern und Filter nach Auslöser
 
@@ -89,7 +89,8 @@ __Speicherung__:
 * Ist die eingestellte Anzahl erreicht, überschreibt ein neues Bild das älteste Bild, das nicht als „Behalten“ markiert ist. Sind alle Bilder einer Kamera markiert, wird kein neues Bild gespeichert.
 * Wird die Anzahl verringert, werden die ältesten nicht markierten Bilder gelöscht. Markierte Bilder bleiben erhalten.
 * Der Index (Zeitpunkt, Auslöser, „Behalten“, Größe) liegt im Medienobjekt „Bildindex“ (Ident `ImageIndex`).
-* Alle diese Medienobjekte sind im Arbeitsspeicher gecacht und werden erst beim Herunterfahren von Symcon geschrieben. Das schont den Flash-Speicher der SymBox. Bei einem Stromausfall gehen die Bilder seit dem letzten Herunterfahren verloren.
+* __In-Memory-Cache verwenden__ (Standard: an): Alle diese Medienobjekte sind im Arbeitsspeicher gecacht und werden erst beim Herunterfahren von Symcon geschrieben. Das schont den Flash-Speicher der SymBox. Bei einem Stromausfall gehen die Bilder seit dem letzten Herunterfahren verloren. Dasselbe gilt, wenn Symcon nicht regulär heruntergefahren, sondern hart beendet wird (z. B. ein Docker-Container, der beim Stoppen die Frist überschreitet). Fehlt der Bildindex danach, beginnt das Modul mit einem leeren Index und meldet dies einmal im Meldungsfenster.
+* Ohne Cache wird jedes Bild und jede Änderung des Index sofort auf den Speicher geschrieben. Das ist für Systeme mit Festplatte gedacht (z. B. Docker auf einem NAS) und sollte auf der SymBox oder bei SD-/SSD-Speicher nicht verwendet werden. Beim Abschalten schreibt Symcon die Inhalte aus dem Arbeitsspeicher zuerst in die Dateien, es geht nichts verloren.
 * Name und Sichtbarkeit der Medienobjekte werden nur beim Anlegen gesetzt (versteckt) und können danach frei geändert werden.
 * Ist der Bildindex beschädigt, speichert das Modul keine Bilder mehr und meldet dies im Meldungsfenster. Abhilfe: Medienobjekt „Bildindex“ löschen. Die vorhandenen Bild-Medienobjekte werden dann nach und nach wieder überschrieben.
 

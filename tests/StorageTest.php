@@ -66,6 +66,32 @@ class StorageTest extends TestCase
         $this->assertTrue(IPS_GetMedia($indexID)['MediaIsCached']);
     }
 
+    public function testMemoryCacheOptionAppliesToNewAndExistingMedia(): void
+    {
+        [$id, $module] = $this->createInstance([self::CAMERA_A => 3]);
+        $this->store($module, self::CAMERA_A, 3, $this->jpeg(1));
+        $slotID = IPS_GetObjectIDByIdent('IMG_' . self::CAMERA_A . '_001', $id);
+        $indexID = IPS_GetObjectIDByIdent('ImageIndex', $id);
+
+        // Switched off: existing media are no longer cached, new media are created without cache
+        IPS_SetProperty($id, 'MemoryCache', false);
+        IPS_ApplyChanges($id);
+        $this->assertFalse(IPS_GetMedia($slotID)['MediaIsCached']);
+        $this->assertFalse(IPS_GetMedia($indexID)['MediaIsCached']);
+        $this->store($module, self::CAMERA_A, 3, $this->jpeg(2));
+        $this->assertFalse(IPS_GetMedia(IPS_GetObjectIDByIdent('IMG_' . self::CAMERA_A . '_002', $id))['MediaIsCached']);
+        $this->assertSame($this->jpeg(1), $this->content($id, 'IMG_' . self::CAMERA_A . '_001'));
+        $this->assertStringNotContainsString('RAM', (new ReflectionMethod($module, 'GetStorageInfo'))->invoke($module));
+
+        // Switched on again: all media are cached
+        IPS_SetProperty($id, 'MemoryCache', true);
+        IPS_ApplyChanges($id);
+        foreach (['IMG_' . self::CAMERA_A . '_001', 'IMG_' . self::CAMERA_A . '_002', 'ImageIndex'] as $ident) {
+            $this->assertTrue(IPS_GetMedia(IPS_GetObjectIDByIdent($ident, $id))['MediaIsCached'], $ident);
+        }
+        $this->assertSame(2, count($this->index($id)['cameras'][self::CAMERA_A]));
+    }
+
     public function testKeptImagesAreNotOverwritten(): void
     {
         [$id, $module] = $this->createInstance([self::CAMERA_A => 2]);

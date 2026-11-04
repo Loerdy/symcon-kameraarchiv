@@ -33,7 +33,8 @@ class CameraArchive extends IPSModuleStrict
     private const IMAGES_MAX = 200;
 
     // Ring buffer: image media below the instance, index in a document medium.
-    // Both are cached (IPS_SetMediaCached), so they live in RAM and are only written at shutdown.
+    // With the in-memory cache (default) both are cached (IPS_SetMediaCached), so they live in RAM and are only
+    // written at shutdown. Without it every image is written to the storage immediately.
     private const INDEX_IDENT = 'ImageIndex';
     private const INDEX_VERSION = 1;
     private const SLOT_IDENT_PREFIX = 'IMG_';
@@ -72,6 +73,7 @@ class CameraArchive extends IPSModuleStrict
         $this->RegisterPropertyBoolean('ResizeEnabled', true);
         $this->RegisterPropertyInteger('ResizeWidth', 1280);
         $this->RegisterPropertyInteger('ResizeQuality', 75);
+        $this->RegisterPropertyBoolean('MemoryCache', true);
         $this->RegisterPropertyString('Triggers', '[]');
         $this->RegisterPropertyInteger('CameraLockout', self::CAMERA_LOCKOUT_DEFAULT);
 
@@ -93,6 +95,7 @@ class CameraArchive extends IPSModuleStrict
     public function MessageSink(int $TimeStamp, int $SenderID, int $Message, array $Data): void
     {
         if ($Message === IPS_KERNELSTARTED) {
+            $this->ApplyCacheMode();
             $this->TrimAllCameras();
             $this->InitTriggerState();
             return;
@@ -137,6 +140,7 @@ class CameraArchive extends IPSModuleStrict
         // Objects are only touched once the kernel is ready (best practice), otherwise IPS_KERNELSTARTED does it
         $this->RegisterMessage(0, IPS_KERNELSTARTED);
         if (IPS_GetKernelRunlevel() === KR_READY) {
+            $this->ApplyCacheMode();
             $this->TrimAllCameras();
             $this->InitTriggerState();
             // Camera names or image counts may have changed
@@ -1205,15 +1209,14 @@ class CameraArchive extends IPSModuleStrict
                 return ['ok' => false, 'message' => sprintf($this->Translate('Image slot %s is used by another object'), $ident)];
             }
             if ($mediaID === 0) {
-                $mediaID = $this->CreateCachedMedia(
+                $mediaID = $this->CreateStorageMedia(
                     MEDIATYPE_IMAGE,
                     $ident,
                     sprintf('media/CameraArchive_%d_%s_%03d.jpg', $this->InstanceID, $cameraID, $slot),
                     sprintf('%s %02d', $label, $slot)
                 );
-            } elseif (!IPS_GetMedia($mediaID)['MediaIsCached']) {
-                // Caching is the flash protection of this module, not a user setting
-                IPS_SetMediaCached($mediaID, true);
+            } else {
+                $this->SyncCacheMode($mediaID);
             }
             IPS_SetMediaContent($mediaID, base64_encode($Image['data']));
 
@@ -1404,18 +1407,54 @@ class CameraArchive extends IPSModuleStrict
         return $id;
     }
 
-    private function CreateCachedMedia(int $MediaType, string $Ident, string $File, string $Name): int
+    private function CreateStorageMedia(int $MediaType, string $Ident, string $File, string $Name): int
     {
         $mediaID = IPS_CreateMedia($MediaType);
         IPS_SetMediaFile($mediaID, $File, false);
         // Cache before the first content is written: the content then stays in RAM until shutdown (flash protection)
-        IPS_SetMediaCached($mediaID, true);
+        IPS_SetMediaCached($mediaID, $this->ReadPropertyBoolean('MemoryCache'));
         IPS_SetParent($mediaID, $this->InstanceID);
         IPS_SetIdent($mediaID, $Ident);
         // Name and visibility are only set once; afterwards they belong to the user
         IPS_SetName($mediaID, $Name);
         IPS_SetHidden($mediaID, true);
         return $mediaID;
+    }
+
+    /**
+     * Caching of the own media follows the option "Use in-memory cache". It is part of the storage concept of this
+     * module, not a user setting of the media. Switching it off writes the cached content to the file first.
+     */
+    private function SyncCacheMode(int $MediaID): void
+    {
+        $cached = $this->ReadPropertyBoolean('MemoryCache');
+        if (IPS_GetMedia($MediaID)['MediaIsCached'] !== $cached) {
+            IPS_SetMediaCached($MediaID, $cached);
+        }
+    }
+
+    /**
+     * Applies the option "Use in-memory cache" to all own image media and the index.
+     */
+    private function ApplyCacheMode(): void
+    {
+        if (!$this->EnterStorageLock()) {
+            return;
+        }
+        try {
+            foreach ($this->GetSlotMedia() as $slot) {
+                $mediaID = $this->FindMedia($slot['ident'], MEDIATYPE_IMAGE);
+                if ($mediaID > 0) {
+                    $this->SyncCacheMode($mediaID);
+                }
+            }
+            $indexID = $this->FindMedia(self::INDEX_IDENT, MEDIATYPE_DOCUMENT);
+            if ($indexID > 0) {
+                $this->SyncCacheMode($indexID);
+            }
+        } finally {
+            $this->LeaveStorageLock();
+        }
     }
 
     /**
@@ -1489,7 +1528,7 @@ class CameraArchive extends IPSModuleStrict
             return false;
         }
         if ($mediaID === 0) {
-            $mediaID = $this->CreateCachedMedia(
+            $mediaID = $this->CreateStorageMedia(
                 MEDIATYPE_DOCUMENT,
                 self::INDEX_IDENT,
                 sprintf('media/CameraArchive_%d_index.json', $this->InstanceID),
@@ -1522,7 +1561,7 @@ class CameraArchive extends IPSModuleStrict
             return $this->Translate('The image index is damaged. Images are not stored.');
         }
         return sprintf(
-            $this->Translate('Stored images: %d, %s in RAM'),
+            $this->Translate($this->ReadPropertyBoolean('MemoryCache') ? 'Stored images: %d, %s in RAM' : 'Stored images: %d, %s'),
             array_sum(array_column($statistics, 'count')),
             $this->FormatBytes(array_sum(array_column($statistics, 'bytes')))
         );

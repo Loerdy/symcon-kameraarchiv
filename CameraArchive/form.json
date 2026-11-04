@@ -241,8 +241,17 @@
         },
         {
             "type": "Label",
-            "caption": "Storage (RAM)",
+            "caption": "Storage",
             "bold": true
+        },
+        {
+            "type": "CheckBox",
+            "name": "MemoryCache",
+            "caption": "Use in-memory cache"
+        },
+        {
+            "type": "Label",
+            "caption": "Do not disable this option on the SymBox or on SD/SSD storage. With the cache, images are kept in RAM and only written at shutdown (lost on a power failure). Without it, every image is written to the storage immediately."
         },
         {
             "type": "Label",
