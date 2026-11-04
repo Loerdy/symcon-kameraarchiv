@@ -55,6 +55,11 @@ class CameraArchive extends IPSModuleStrict
     private const QUEUE_BUFFER = 'TriggerState';
     private const QUEUE_LOCK_TIMEOUT = 2000;
 
+    // Tile (phase 5): images are delivered by the WebHook of the instance. WebHooks are reachable without
+    // authentication (also via Connect), so every request needs the random token that only the tile knows.
+    private const HOOK_PREFIX = 'camera-archive-';
+    private const TOKEN_ATTRIBUTE = 'HookToken';
+
     public function Create(): void
     {
         // Never delete this line!
@@ -74,8 +79,15 @@ class CameraArchive extends IPSModuleStrict
         // not user configuration, therefore an attribute and not a property.
         $this->RegisterAttributeString('NoSnapshotCameras', '[]');
 
+        // Secret of the image WebHook, created once in ApplyChanges
+        $this->RegisterAttributeString(self::TOKEN_ATTRIBUTE, '');
+
         // A single timer, always set to the next due snapshot of the queue (no polling)
         $this->RegisterTimer(self::QUEUE_TIMER, 0, 'IPS_RequestAction($_IPS[\'TARGET\'], \'' . self::QUEUE_TIMER . '\', 0);');
+
+        $this->SetVisualizationType(INSTANCE_VISUALIZATION_TYPE_HTML);
+        // The hook is volatile and registered again on every start (see RegisterHook in the SDK documentation)
+        $this->RegisterHook(self::HOOK_PREFIX . $this->InstanceID);
     }
 
     public function MessageSink(int $TimeStamp, int $SenderID, int $Message, array $Data): void
@@ -116,6 +128,10 @@ class CameraArchive extends IPSModuleStrict
             $this->LogMessage($this->Translate('PHP extension GD is not available: images are stored without resizing.'), KL_WARNING);
         }
 
+        if ($this->ReadAttributeString(self::TOKEN_ATTRIBUTE) === '') {
+            $this->WriteAttributeString(self::TOKEN_ATTRIBUTE, bin2hex(random_bytes(16)));
+        }
+
         $this->RegisterTriggerMessages();
 
         // Objects are only touched once the kernel is ready (best practice), otherwise IPS_KERNELSTARTED does it
@@ -123,6 +139,8 @@ class CameraArchive extends IPSModuleStrict
         if (IPS_GetKernelRunlevel() === KR_READY) {
             $this->TrimAllCameras();
             $this->InitTriggerState();
+            // Camera names or image counts may have changed
+            $this->UpdateTile();
         }
 
         // No network access here: ApplyChanges also runs during startup and must not block.
@@ -159,6 +177,20 @@ class CameraArchive extends IPSModuleStrict
     }
 
     /**
+     * Tile of the HTML-SDK: static HTML plus the current state, which also carries the hook address and token.
+     * Later changes reach the tile via UpdateVisualizationValue (without the token).
+     */
+    public function GetVisualizationTile(): string
+    {
+        $state = $this->BuildTileState();
+        $state['hook'] = '/hook/' . self::HOOK_PREFIX . $this->InstanceID;
+        $state['token'] = $this->ReadAttributeString(self::TOKEN_ATTRIBUTE);
+        // Camera names come from the console: escape everything that could end the script element
+        $json = json_encode($state, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_INVALID_UTF8_SUBSTITUTE);
+        return file_get_contents(__DIR__ . '/module.html') . '<script>handleMessage(' . $json . ');</script>';
+    }
+
+    /**
      * Fetches a snapshot of the given camera and stores it in the ring buffer of the camera.
      */
     public function TakeSnapshot(string $CameraID): bool
@@ -175,28 +207,11 @@ class CameraArchive extends IPSModuleStrict
      */
     public function DeleteImages(string $CameraID): bool
     {
-        if (!$this->IsValidCameraID($CameraID)) {
-            $this->SendDebug('DeleteImages', 'Invalid camera ID', 0);
-            return false;
+        $deleted = $this->DeleteImagesLocked($CameraID);
+        if ($deleted) {
+            $this->UpdateTile();
         }
-        if (!$this->EnterStorageLock()) {
-            return false;
-        }
-        try {
-            $index = $this->LoadIndex();
-            if ($index === null) {
-                return false;
-            }
-            $inIndex = isset($index['cameras'][$CameraID]);
-            $deleted = $this->DeleteCameraImages($index, $CameraID);
-            if ($inIndex && !$this->SaveIndex($index)) {
-                return false;
-            }
-            $this->SendDebug('DeleteImages', sprintf('%s: %d images deleted', $CameraID, $deleted), 0);
-            return true;
-        } finally {
-            $this->LeaveStorageLock();
-        }
+        return $deleted;
     }
 
     /**
@@ -355,6 +370,76 @@ class CameraArchive extends IPSModuleStrict
     }
 
     /**
+     * WebHook: delivers one stored image. Parameters: token, camera, slot, seq.
+     * The sequence number makes every URL unique per image, so a reused slot never returns a cached older image.
+     */
+    protected function ProcessHookData(): void
+    {
+        $token = $this->ReadAttributeString(self::TOKEN_ATTRIBUTE);
+        $given = $_GET['token'] ?? null;
+        if ($token === '' || !is_string($given) || !hash_equals($token, $given)) {
+            $this->SendDebug('Hook', 'Request without valid token rejected', 0);
+            $this->SendHookError(403, 'Forbidden');
+            return;
+        }
+
+        $cameraID = $_GET['camera'] ?? null;
+        $slot = filter_var($_GET['slot'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => self::IMAGES_MAX]]);
+        $seq = filter_var($_GET['seq'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
+        if (!is_string($cameraID) || !$this->IsValidCameraID($cameraID) || $slot === false || $seq === false) {
+            $this->SendHookError(400, 'Bad Request');
+            return;
+        }
+
+        // Index and content are read under the lock, so the slot cannot be overwritten in between
+        if (!$this->EnterStorageLock()) {
+            $this->SendHookError(503, 'Service Unavailable');
+            return;
+        }
+        try {
+            $data = $this->ReadStoredImage($cameraID, $slot, $seq);
+        } finally {
+            $this->LeaveStorageLock();
+        }
+        if ($data === null) {
+            $this->SendDebug('Hook', sprintf('%s slot %d seq %d: not found', $cameraID, $slot, $seq), 0);
+            $this->SendHookError(404, 'Not Found');
+            return;
+        }
+
+        header('Content-Type: image/jpeg');
+        header('Cache-Control: private, max-age=86400');
+        header('X-Content-Type-Options: nosniff');
+        echo $data;
+    }
+
+    private function DeleteImagesLocked(string $CameraID): bool
+    {
+        if (!$this->IsValidCameraID($CameraID)) {
+            $this->SendDebug('DeleteImages', 'Invalid camera ID', 0);
+            return false;
+        }
+        if (!$this->EnterStorageLock()) {
+            return false;
+        }
+        try {
+            $index = $this->LoadIndex();
+            if ($index === null) {
+                return false;
+            }
+            $inIndex = isset($index['cameras'][$CameraID]);
+            $deleted = $this->DeleteCameraImages($index, $CameraID);
+            if ($inIndex && !$this->SaveIndex($index)) {
+                return false;
+            }
+            $this->SendDebug('DeleteImages', sprintf('%s: %d images deleted', $CameraID, $deleted), 0);
+            return true;
+        } finally {
+            $this->LeaveStorageLock();
+        }
+    }
+
+    /**
      * Fetches a snapshot and stores it. Result: ok, message.
      */
     private function SnapshotAndStore(string $CameraID, string $Trigger): array
@@ -369,6 +454,7 @@ class CameraArchive extends IPSModuleStrict
         if (!$stored['ok']) {
             return ['ok' => false, 'message' => $stored['message']];
         }
+        $this->UpdateTile();
         return ['ok' => true, 'message' => sprintf(
             $this->Translate('Snapshot stored: %s, %d x %d, %d bytes'),
             $result['label'],
@@ -1450,6 +1536,79 @@ class CameraArchive extends IPSModuleStrict
     private function LeaveStorageLock(): void
     {
         IPS_SemaphoreLeave('CAR_Storage_' . $this->InstanceID);
+    }
+
+    /**
+     * Content of the image in the slot, if the slot still holds the image with this sequence number.
+     */
+    private function ReadStoredImage(string $CameraID, int $Slot, int $Seq): ?string
+    {
+        $index = $this->LoadIndex();
+        $found = false;
+        foreach ($index['cameras'][$CameraID] ?? [] as $entry) {
+            if ($entry['slot'] === $Slot && $entry['seq'] === $Seq) {
+                $found = true;
+                break;
+            }
+        }
+        if (!$found) {
+            return null;
+        }
+        $mediaID = $this->FindMedia($this->SlotIdent($CameraID, $Slot), MEDIATYPE_IMAGE);
+        if ($mediaID <= 0) {
+            return null;
+        }
+        $data = base64_decode(IPS_GetMediaContent($mediaID), true);
+        return is_string($data) && $data !== '' ? $data : null;
+    }
+
+    private function SendHookError(int $Code, string $Text): void
+    {
+        header(sprintf('HTTP/1.1 %d %s', $Code, $Text));
+        header('Content-Type: text/plain');
+        echo $Text;
+    }
+
+    /**
+     * State of the tile: cameras (active or with images) in the order of the camera list, images newest first.
+     */
+    private function BuildTileState(): array
+    {
+        $index = $this->LoadIndex();
+        $cameras = [];
+        foreach ($this->GetCameraList() as $camera) {
+            $entries = $index['cameras'][$camera['CameraID']] ?? [];
+            if (!$camera['Enabled'] && count($entries) === 0) {
+                continue;
+            }
+            usort($entries, fn (array $A, array $B): int => $B['seq'] <=> $A['seq']);
+            $images = [];
+            foreach ($entries as $entry) {
+                $images[] = [
+                    'slot'    => $entry['slot'],
+                    'seq'     => $entry['seq'],
+                    'time'    => $entry['time'],
+                    'trigger' => $entry['trigger'],
+                    'keep'    => $entry['keep'],
+                    'width'   => $entry['width'],
+                    'height'  => $entry['height']
+                ];
+            }
+            $cameras[] = [
+                'id'     => $camera['CameraID'],
+                'name'   => $camera['Name'] !== '' ? $camera['Name'] : $camera['CameraID'],
+                'images' => $images
+            ];
+        }
+        return ['cameras' => $cameras, 'indexDamaged' => $index === null];
+    }
+
+    /**
+     * Sends the current state to open tiles. Only metadata, the images are loaded via the WebHook.
+     */
+    private function UpdateTile(): void
+    {
+        $this->UpdateVisualizationValue((string) json_encode($this->BuildTileState(), JSON_INVALID_UTF8_SUBSTITUTE));
     }
 
     /**

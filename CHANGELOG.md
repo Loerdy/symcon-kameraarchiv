@@ -19,3 +19,5 @@ Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 - **`CAR_DeleteImages`** und Button „Bilder entfernter Kameras löschen“.
 - **Auslöser:** Liste von Variablen mit Bedingung (jede Änderung, jede Aktualisierung, wechselt auf Wert, wird mit Wert aktualisiert), einer oder mehreren Kameras, Verzögerung und Sperrzeit. Zusätzlich ein Mindestabstand je Kamera. Der Name des Auslösers wird am Bild gespeichert.
 - **Warteschlange** der fälligen Snapshots im Arbeitsspeicher, abgearbeitet von einem einzelnen Timer.
+- **Kachel** (HTML-SDK) mit Kameraauswahl, neuestem Bild mit Auslöser und Zeit, Archivleiste mit Vorschaubildern und Filter nach Auslöser. Neue Bilder erscheinen ohne Neuladen.
+- **WebHook** `/hook/camera-archive-<InstanzID>` liefert die Bilder an die Kachel, nur mit dem geheimen Schlüssel der Instanz.

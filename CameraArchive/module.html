@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <style>
+        :root {
+            --text: #1f1f1f;
+            --muted: rgba(0, 0, 0, 0.6);
+            --surface: rgba(127, 127, 127, 0.16);
+            --accent: #1f6fd6;
+            --accent-text: #ffffff;
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --text: #f2f2f2;
+                --muted: rgba(255, 255, 255, 0.65);
+                --surface: rgba(127, 127, 127, 0.22);
+                --accent: #4c94f0;
+                --accent-text: #0b0b0b;
+            }
+        }
+
+        html, body {
+            margin: 0;
+            height: 100%;
+            overflow: hidden;
+            background: transparent;
+            color: var(--text);
+            font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            font-size: 14px;
+        }
+
+        #app {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            height: 100%;
+            padding: 6px;
+            box-sizing: border-box;
+        }
+
+        #chips {
+            display: flex;
+            flex: none;
+            gap: 6px;
+            overflow-x: auto;
+        }
+
+        .chip {
+            flex: none;
+            padding: 4px 12px;
+            border: none;
+            border-radius: 14px;
+            background: var(--surface);
+            color: var(--text);
+            font: inherit;
+            white-space: nowrap;
+            cursor: pointer;
+        }
+
+        .chip.active {
+            background: var(--accent);
+            color: var(--accent-text);
+        }
+
+        #main {
+            position: relative;
+            display: flex;
+            flex: 1 1 auto;
+            align-items: center;
+            justify-content: center;
+            min-height: 0;
+            border-radius: 8px;
+            background: var(--surface);
+            overflow: hidden;
+        }
+
+        #image {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        #message {
+            padding: 12px;
+            color: var(--muted);
+            text-align: center;
+        }
+
+        #badges {
+            position: absolute;
+            left: 8px;
+            bottom: 8px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+
+        /* Badges lie on the image, therefore fixed colors with enough contrast in both themes */
+        .badge {
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: rgba(0, 0, 0, 0.65);
+            color: #ffffff;
+            font-size: 12px;
+        }
+
+        #bar {
+            display: flex;
+            flex: none;
+            gap: 6px;
+            align-items: stretch;
+            height: 64px;
+        }
+
+        #filter {
+            flex: none;
+            max-width: 35%;
+            border: none;
+            border-radius: 6px;
+            background: var(--surface);
+            color: var(--text);
+            font: inherit;
+        }
+
+        #filter option {
+            color: #1f1f1f;
+        }
+
+        #strip {
+            display: flex;
+            flex: 1 1 auto;
+            gap: 4px;
+            overflow-x: auto;
+        }
+
+        .thumb {
+            position: relative;
+            flex: none;
+            height: 100%;
+            aspect-ratio: 16 / 9;
+            padding: 0;
+            border: 2px solid transparent;
+            border-radius: 4px;
+            background: var(--surface);
+            overflow: hidden;
+            cursor: pointer;
+        }
+
+        .thumb.active {
+            border-color: var(--accent);
+        }
+
+        .thumb img {
+            display: block;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+
+        .thumb span {
+            position: absolute;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.6);
+            color: #ffffff;
+            font-size: 10px;
+            text-align: center;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+
+        @media (max-height: 240px) {
+            #bar {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+<div id="app">
+    <div id="chips"></div>
+    <div id="main">
+        <img id="image" class="hidden" alt="">
+        <div id="message"></div>
+        <div id="badges" class="hidden">
+            <span id="badgeTrigger" class="badge"></span>
+            <span id="badgeTime" class="badge"></span>
+            <span id="badgeKeep" class="badge">Kept</span>
+        </div>
+    </div>
+    <div id="bar">
+        <select id="filter"></select>
+        <div id="strip"></div>
+    </div>
+</div>
+<script>
+    // Messages of the module: the initial state contains hook and token, later updates only the cameras
+    const tile = { hook: '', token: '', cameras: [], indexDamaged: false };
+    // Selected camera, selected image (null: always show the newest) and trigger filter ('' = all)
+    const view = { camera: null, seq: null, filter: '' };
+
+    function text(original) {
+        return typeof translate === 'function' ? translate(original) : original;
+    }
+
+    function handleMessage(message) {
+        let data = message;
+        if (typeof message === 'string') {
+            try {
+                data = JSON.parse(message);
+            } catch (error) {
+                return;
+            }
+        }
+        if (data === null || typeof data !== 'object') {
+            return;
+        }
+        if (typeof data.hook === 'string') {
+            tile.hook = data.hook;
+        }
+        if (typeof data.token === 'string') {
+            tile.token = data.token;
+        }
+        tile.cameras = Array.isArray(data.cameras) ? data.cameras : [];
+        tile.indexDamaged = data.indexDamaged === true;
+        render();
+    }
+
+    function imageUrl(camera, image) {
+        const query = new URLSearchParams({ token: tile.token, camera: camera.id, slot: image.slot, seq: image.seq });
+        return tile.hook + '?' + query.toString();
+    }
+
+    function triggerLabel(trigger) {
+        return trigger === 'manual' ? text('Manual') : trigger;
+    }
+
+    function formatTime(time, short) {
+        const date = new Date(time * 1000);
+        if (!short) {
+            return date.toLocaleString([], { dateStyle: 'short', timeStyle: 'medium' });
+        }
+        const clock = date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        if (date.toDateString() === new Date().toDateString()) {
+            return clock;
+        }
+        return date.toLocaleDateString([], { day: '2-digit', month: '2-digit' }) + ' ' + clock;
+    }
+
+    function showMessage(message) {
+        document.getElementById('image').classList.add('hidden');
+        document.getElementById('badges').classList.add('hidden');
+        const element = document.getElementById('message');
+        element.textContent = message;
+        element.classList.remove('hidden');
+    }
+
+    function renderChips() {
+        const chips = document.getElementById('chips');
+        chips.replaceChildren();
+        chips.classList.toggle('hidden', tile.cameras.length < 2);
+        for (const camera of tile.cameras) {
+            const chip = document.createElement('button');
+            chip.className = 'chip' + (camera.id === view.camera ? ' active' : '');
+            chip.textContent = camera.name;
+            chip.addEventListener('click', () => {
+                view.camera = camera.id;
+                view.seq = null;
+                view.filter = '';
+                render();
+            });
+            chips.appendChild(chip);
+        }
+    }
+
+    function renderFilter(camera) {
+        const triggers = [...new Set(camera.images.map((image) => image.trigger))];
+        if (!triggers.includes(view.filter)) {
+            view.filter = '';
+        }
+        const select = document.getElementById('filter');
+        select.replaceChildren();
+        const all = document.createElement('option');
+        all.value = '';
+        all.textContent = text('All triggers');
+        select.appendChild(all);
+        for (const trigger of triggers) {
+            const option = document.createElement('option');
+            option.value = trigger;
+            option.textContent = triggerLabel(trigger);
+            select.appendChild(option);
+        }
+        select.value = view.filter;
+        select.classList.toggle('hidden', triggers.length < 2);
+    }
+
+    function renderStrip(camera, images, selected) {
+        const strip = document.getElementById('strip');
+        strip.replaceChildren();
+        for (const image of images) {
+            const thumb = document.createElement('button');
+            thumb.className = 'thumb' + (image === selected ? ' active' : '');
+            const picture = document.createElement('img');
+            picture.loading = 'lazy';
+            picture.alt = '';
+            picture.src = imageUrl(camera, image);
+            const label = document.createElement('span');
+            label.textContent = formatTime(image.time, true);
+            thumb.title = triggerLabel(image.trigger) + ' – ' + formatTime(image.time, false);
+            thumb.append(picture, label);
+            thumb.addEventListener('click', () => {
+                // Clicking the newest image returns to "always show the newest"
+                view.seq = image === images[0] ? null : image.seq;
+                render();
+            });
+            strip.appendChild(thumb);
+        }
+    }
+
+    function render() {
+        if (!tile.cameras.some((camera) => camera.id === view.camera)) {
+            view.camera = tile.cameras.length > 0 ? tile.cameras[0].id : null;
+            view.seq = null;
+        }
+        renderChips();
+
+        const bar = document.getElementById('bar');
+        const camera = tile.cameras.find((entry) => entry.id === view.camera);
+        if (!camera) {
+            bar.classList.add('hidden');
+            showMessage(text('No active camera. Activate a camera in the instance configuration.'));
+            return;
+        }
+
+        renderFilter(camera);
+        const images = camera.images.filter((image) => view.filter === '' || image.trigger === view.filter);
+        let selected = images.find((image) => image.seq === view.seq);
+        if (!selected) {
+            view.seq = null;
+            selected = images[0];
+        }
+
+        bar.classList.toggle('hidden', camera.images.length === 0);
+        renderStrip(camera, images, selected);
+
+        if (!selected) {
+            showMessage(text(tile.indexDamaged ? 'The image index is damaged.' : 'No images yet'));
+            return;
+        }
+
+        const picture = document.getElementById('image');
+        const url = imageUrl(camera, selected);
+        if (picture.getAttribute('src') !== url) {
+            delete picture.dataset.failed;
+            picture.src = url;
+        } else if (picture.dataset.failed === 'true') {
+            showMessage(text('Image not available'));
+            return;
+        }
+        picture.classList.remove('hidden');
+        document.getElementById('message').classList.add('hidden');
+        document.getElementById('badgeTrigger').textContent = triggerLabel(selected.trigger);
+        document.getElementById('badgeTime').textContent = formatTime(selected.time, false);
+        document.getElementById('badgeKeep').classList.toggle('hidden', !selected.keep);
+        document.getElementById('badges').classList.remove('hidden');
+    }
+
+    document.getElementById('filter').addEventListener('change', (event) => {
+        view.filter = event.target.value;
+        view.seq = null;
+        render();
+    });
+
+    document.getElementById('image').addEventListener('error', (event) => {
+        event.target.dataset.failed = 'true';
+        showMessage(text('Image not available'));
+    });
+</script>
+</body>
+</html>

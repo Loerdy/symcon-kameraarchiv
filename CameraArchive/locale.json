@@ -78,7 +78,14 @@
             "The camera list is empty. Fetch the cameras first.": "Die Kameraliste ist leer. Bitte zuerst die Kameras abrufen.",
             "Lockout time of this trigger": "Sperrzeit dieses Auslösers",
             "none": "keine",
-            "Select the variable and confirm with OK, then open the trigger again to set the value.": "Variable auswählen und mit OK bestätigen, danach den Auslöser erneut öffnen, um den Wert festzulegen."
+            "Select the variable and confirm with OK, then open the trigger again to set the value.": "Variable auswählen und mit OK bestätigen, danach den Auslöser erneut öffnen, um den Wert festzulegen.",
+            "Kept": "Behalten",
+            "Manual": "Manuell",
+            "All triggers": "Alle Auslöser",
+            "No active camera. Activate a camera in the instance configuration.": "Keine aktive Kamera. Bitte in der Instanzkonfiguration eine Kamera aktivieren.",
+            "The image index is damaged.": "Der Bildindex ist beschädigt.",
+            "No images yet": "Noch keine Bilder",
+            "Image not available": "Bild nicht verfügbar"
         }
     }
 }

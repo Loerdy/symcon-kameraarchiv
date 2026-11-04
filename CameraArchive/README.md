@@ -2,7 +2,7 @@
 
 Nimmt Snapshots von Kameras auf und legt sie je Kamera in einem Archiv ab. Als Bildquelle dient zunächst die UniFi Protect Integration API.
 
-> Status: in Entwicklung (Phase 4 von 8). Snapshots werden per Auslöser oder manuell aufgenommen und im RAM gespeichert. Kachel, Mail und NAS folgen.
+> Status: in Entwicklung (Phase 5 von 8). Snapshots werden per Auslöser oder manuell aufgenommen, im RAM gespeichert und in einer Kachel angezeigt. Aktionen in der Kachel, Mail und NAS folgen.
 
 ### Inhaltsverzeichnis
 
@@ -23,8 +23,9 @@ Nimmt Snapshots von Kameras auf und legt sie je Kamera in einem Archiv ab. Als B
 * Auslöser: Variablen (Klingel, Türkontakt, Bewegungsmelder …) lösen Snapshots einer oder mehrerer Kameras aus, mit Verzögerung und Sperrzeit
 * Speicherung im RAM als Ringpuffer je Kamera, Anzahl der Bilder je Kamera einstellbar
 * Optionale Verkleinerung vor dem Speichern (Standard: an, 1280 px Breite, JPEG-Qualität 75)
+* Kachel für die Visualisierung: Kameraauswahl, neuestes Bild groß, Archivleiste mit Vorschaubildern und Filter nach Auslöser
 
-Geplant: Kachel, Mailversand, Ablage auf einem NAS per WebDAV.
+Geplant: Aktionen in der Kachel (Snapshot, Behalten, Löschen, Download), Mailversand, Ablage auf einem NAS per WebDAV.
 
 ### 2. Voraussetzungen
 
@@ -110,7 +111,13 @@ Das Modul legt keine Statusvariablen und keine Profile an.
 
 ### 6. Visualisierung
 
-Noch keine. Eine Kachel ist geplant.
+Die Instanz bringt eine eigene Kachel mit (HTML-SDK):
+
+* Oben die Kameras zur Auswahl (nur bei mehr als einer Kamera). Angezeigt werden aktive Kameras und inaktive Kameras, von denen noch Bilder gespeichert sind.
+* In der Mitte das ausgewählte Bild mit Auslöser und Zeit. Ohne Auswahl wird immer das neueste Bild angezeigt, neue Snapshots erscheinen automatisch.
+* Unten die Archivleiste mit Vorschaubildern, neueste zuerst, und ein Filter nach Auslöser (sobald es mehr als einen Auslöser gibt).
+
+Die Bilder liefert der WebHook der Instanz (`/hook/camera-archive-<InstanzID>`). WebHooks sind ohne Anmeldung erreichbar, auch über Symcon Connect. Der WebHook liefert deshalb nur Bilder, wenn die Anfrage den geheimen Schlüssel der Instanz enthält. Diesen Schlüssel erhält nur die Kachel, die selbst durch das Passwort der Visualisierung geschützt ist.
 
 ### 7. PHP-Befehlsreferenz
 
