@@ -131,6 +131,43 @@ class TileTest extends TestCase
         $this->assertSame('{broken', base64_decode(IPS_GetMediaContent($indexID)));
     }
 
+    public function testMissingIndexFileStartsNewIndex(): void
+    {
+        // After a restart the medium can exist without its file (content not readable)
+        [$id, $module] = $this->createInstance([['id' => self::CAMERA_A, 'images' => 3]]);
+        $indexID = IPS_CreateMedia(MEDIATYPE_DOCUMENT);
+        IPS_SetMediaFile($indexID, 'media/missing_index.json', false);
+        IPS_SetParent($indexID, $id);
+        IPS_SetIdent($indexID, 'ImageIndex');
+
+        $state = $this->state($module);
+        $this->assertFalse($state['indexDamaged']);
+        $this->assertSame([], $state['cameras'][0]['images']);
+        $this->assertStringContainsString('function handleMessage', $module->GetVisualizationTile());
+
+        // Storing works again and uses the existing medium
+        $this->store($module, self::CAMERA_A, 3, 'image-1');
+        $this->assertSame($indexID, IPS_GetObjectIDByIdent('ImageIndex', $id));
+        $this->assertSame([1], array_column($this->state($module)['cameras'][0]['images'], 'seq'));
+    }
+
+    public function testHookReportsMissingImageFile(): void
+    {
+        [$id, $module] = $this->createInstance([['id' => self::CAMERA_A, 'images' => 3]]);
+        $this->store($module, self::CAMERA_A, 3, 'image-1');
+        // Slot 2 is listed in the index, but its medium has no readable content
+        $mediaID = IPS_CreateMedia(MEDIATYPE_IMAGE);
+        IPS_SetMediaFile($mediaID, 'media/missing_slot.jpg', false);
+        IPS_SetParent($mediaID, $id);
+        IPS_SetIdent($mediaID, 'IMG_' . self::CAMERA_A . '_002');
+        $indexID = IPS_GetObjectIDByIdent('ImageIndex', $id);
+        $index = json_decode(base64_decode(IPS_GetMediaContent($indexID)), true);
+        $index['cameras'][self::CAMERA_A][] = ['slot' => 2, 'seq' => 7, 'time' => 1, 'trigger' => 'manual', 'keep' => false, 'size' => 1, 'width' => 1, 'height' => 1];
+        IPS_SetMediaContent($indexID, base64_encode(json_encode($index)));
+
+        $this->assertSame('Not Found', $this->hook($module, ['token' => $this->token($module), 'camera' => self::CAMERA_A, 'slot' => '2', 'seq' => '7']));
+    }
+
     public function testTileContainsStateAndEscapesCameraNames(): void
     {
         [, $module] = $this->createInstance([['id' => self::CAMERA_A, 'images' => 3, 'name' => '</script><img src=x>']]);

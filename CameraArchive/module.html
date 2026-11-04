@@ -1,191 +1,171 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <style>
-        :root {
-            --text: #1f1f1f;
-            --muted: rgba(0, 0, 0, 0.6);
-            --surface: rgba(127, 127, 127, 0.16);
-            --accent: #1f6fd6;
-            --accent-text: #ffffff;
-        }
+<!-- Fragment like the official HTML-SDK examples: the body margins of the visualization (space for the tile title)
+     as well as text color and font of the design are kept. Surfaces are derived from the inherited text color. -->
+<style>
+    html {
+        height: 100%;
+    }
 
-        @media (prefers-color-scheme: dark) {
-            :root {
-                --text: #f2f2f2;
-                --muted: rgba(255, 255, 255, 0.65);
-                --surface: rgba(127, 127, 127, 0.22);
-                --accent: #4c94f0;
-                --accent-text: #0b0b0b;
-            }
-        }
+    body {
+        height: calc(100% - var(--body-margins, 0px));
+        overflow: hidden;
+    }
 
-        html, body {
-            margin: 0;
-            height: 100%;
-            overflow: hidden;
-            background: transparent;
-            color: var(--text);
-            font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-            font-size: 14px;
-        }
+    #app {
+        --surface: rgba(127, 127, 127, 0.2);
+        --surface: color-mix(in srgb, currentColor 12%, transparent);
+        --accent: #1f6fd6;
+        display: flex;
+        flex-direction: column;
+        gap: 6px;
+        height: 100%;
+    }
 
-        #app {
-            display: flex;
-            flex-direction: column;
-            gap: 6px;
-            height: 100%;
-            padding: 6px;
-            box-sizing: border-box;
-        }
+    #chips {
+        display: flex;
+        flex: none;
+        gap: 6px;
+        overflow-x: auto;
+    }
 
-        #chips {
-            display: flex;
-            flex: none;
-            gap: 6px;
-            overflow-x: auto;
-        }
+    .chip {
+        flex: none;
+        padding: 4px 12px;
+        border: none;
+        border-radius: 14px;
+        background: var(--surface);
+        color: inherit;
+        font: inherit;
+        white-space: nowrap;
+        cursor: pointer;
+    }
 
-        .chip {
-            flex: none;
-            padding: 4px 12px;
-            border: none;
-            border-radius: 14px;
-            background: var(--surface);
-            color: var(--text);
-            font: inherit;
-            white-space: nowrap;
-            cursor: pointer;
-        }
+    /* Fixed colors: white on the accent color is readable in every design */
+    .chip.active {
+        background: var(--accent);
+        color: #ffffff;
+    }
 
-        .chip.active {
-            background: var(--accent);
-            color: var(--accent-text);
-        }
+    #main {
+        position: relative;
+        display: flex;
+        flex: 1 1 auto;
+        align-items: center;
+        justify-content: center;
+        min-height: 0;
+        border-radius: 8px;
+        background: var(--surface);
+        overflow: hidden;
+    }
 
-        #main {
-            position: relative;
-            display: flex;
-            flex: 1 1 auto;
-            align-items: center;
-            justify-content: center;
-            min-height: 0;
-            border-radius: 8px;
-            background: var(--surface);
-            overflow: hidden;
-        }
+    #image {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+    }
 
-        #image {
-            display: block;
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-        }
+    #message {
+        padding: 12px;
+        opacity: 0.7;
+        text-align: center;
+    }
 
-        #message {
-            padding: 12px;
-            color: var(--muted);
-            text-align: center;
-        }
+    #badges {
+        position: absolute;
+        left: 8px;
+        bottom: 8px;
+        display: flex;
+        flex-wrap: wrap;
+        gap: 6px;
+    }
 
-        #badges {
-            position: absolute;
-            left: 8px;
-            bottom: 8px;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 6px;
-        }
+    /* Badges lie on the image, therefore fixed colors with enough contrast in every design */
+    .badge {
+        padding: 2px 6px;
+        border-radius: 4px;
+        background: rgba(0, 0, 0, 0.65);
+        color: #ffffff;
+        font-size: 12px;
+    }
 
-        /* Badges lie on the image, therefore fixed colors with enough contrast in both themes */
-        .badge {
-            padding: 2px 6px;
-            border-radius: 4px;
-            background: rgba(0, 0, 0, 0.65);
-            color: #ffffff;
-            font-size: 12px;
-        }
+    #bar {
+        display: flex;
+        flex: none;
+        gap: 6px;
+        align-items: stretch;
+        height: 64px;
+    }
 
+    #filter {
+        flex: none;
+        max-width: 35%;
+        border: none;
+        border-radius: 6px;
+        background: var(--surface);
+        color: inherit;
+        font: inherit;
+    }
+
+    /* The option list is drawn by the system: fixed colors so that it stays readable */
+    #filter option {
+        background: #ffffff;
+        color: #1f1f1f;
+    }
+
+    #strip {
+        display: flex;
+        flex: 1 1 auto;
+        gap: 4px;
+        overflow-x: auto;
+    }
+
+    .thumb {
+        position: relative;
+        flex: none;
+        height: 100%;
+        aspect-ratio: 16 / 9;
+        padding: 0;
+        border: 2px solid transparent;
+        border-radius: 4px;
+        background: var(--surface);
+        overflow: hidden;
+        cursor: pointer;
+    }
+
+    .thumb.active {
+        border-color: var(--accent);
+    }
+
+    .thumb img {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+
+    .thumb span {
+        position: absolute;
+        left: 0;
+        right: 0;
+        bottom: 0;
+        background: rgba(0, 0, 0, 0.6);
+        color: #ffffff;
+        font-size: 10px;
+        text-align: center;
+        white-space: nowrap;
+        overflow: hidden;
+    }
+
+    .hidden {
+        display: none !important;
+    }
+
+    @media (max-height: 280px) {
         #bar {
-            display: flex;
-            flex: none;
-            gap: 6px;
-            align-items: stretch;
-            height: 64px;
+            display: none;
         }
-
-        #filter {
-            flex: none;
-            max-width: 35%;
-            border: none;
-            border-radius: 6px;
-            background: var(--surface);
-            color: var(--text);
-            font: inherit;
-        }
-
-        #filter option {
-            color: #1f1f1f;
-        }
-
-        #strip {
-            display: flex;
-            flex: 1 1 auto;
-            gap: 4px;
-            overflow-x: auto;
-        }
-
-        .thumb {
-            position: relative;
-            flex: none;
-            height: 100%;
-            aspect-ratio: 16 / 9;
-            padding: 0;
-            border: 2px solid transparent;
-            border-radius: 4px;
-            background: var(--surface);
-            overflow: hidden;
-            cursor: pointer;
-        }
-
-        .thumb.active {
-            border-color: var(--accent);
-        }
-
-        .thumb img {
-            display: block;
-            width: 100%;
-            height: 100%;
-            object-fit: cover;
-        }
-
-        .thumb span {
-            position: absolute;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: rgba(0, 0, 0, 0.6);
-            color: #ffffff;
-            font-size: 10px;
-            text-align: center;
-            white-space: nowrap;
-            overflow: hidden;
-        }
-
-        .hidden {
-            display: none !important;
-        }
-
-        @media (max-height: 240px) {
-            #bar {
-                display: none;
-            }
-        }
-    </style>
-</head>
-<body>
+    }
+</style>
 <div id="app">
     <div id="chips"></div>
     <div id="main">
@@ -203,6 +183,13 @@
     </div>
 </div>
 <script>
+    // The body keeps the margins of the visualization; its height is reduced by them so that nothing is cut off
+    (function () {
+        const style = getComputedStyle(document.body);
+        const margins = parseFloat(style.marginTop) + parseFloat(style.marginBottom);
+        document.documentElement.style.setProperty('--body-margins', (isNaN(margins) ? 0 : margins) + 'px');
+    })();
+
     // Messages of the module: the initial state contains hook and token, later updates only the cameras
     const tile = { hook: '', token: '', cameras: [], indexDamaged: false };
     // Selected camera, selected image (null: always show the newest) and trigger filter ('' = all)
@@ -270,6 +257,7 @@
         chips.classList.toggle('hidden', tile.cameras.length < 2);
         for (const camera of tile.cameras) {
             const chip = document.createElement('button');
+            chip.type = 'button';
             chip.className = 'chip' + (camera.id === view.camera ? ' active' : '');
             chip.textContent = camera.name;
             chip.addEventListener('click', () => {
@@ -308,6 +296,7 @@
         strip.replaceChildren();
         for (const image of images) {
             const thumb = document.createElement('button');
+            thumb.type = 'button';
             thumb.className = 'thumb' + (image === selected ? ' active' : '');
             const picture = document.createElement('img');
             picture.loading = 'lazy';
@@ -385,5 +374,3 @@
         showMessage(text('Image not available'));
     });
 </script>
-</body>
-</html>

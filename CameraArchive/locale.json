@@ -85,7 +85,8 @@
             "No active camera. Activate a camera in the instance configuration.": "Keine aktive Kamera. Bitte in der Instanzkonfiguration eine Kamera aktivieren.",
             "The image index is damaged.": "Der Bildindex ist beschädigt.",
             "No images yet": "Noch keine Bilder",
-            "Image not available": "Bild nicht verfügbar"
+            "Image not available": "Bild nicht verfügbar",
+            "The image index could not be read. A new index is started, older images are no longer listed.": "Der Bildindex konnte nicht gelesen werden. Ein neuer Index wird angelegt, ältere Bilder werden nicht mehr aufgeführt."
         }
     }
 }

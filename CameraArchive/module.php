@@ -1431,8 +1431,17 @@ class CameraArchive extends IPSModuleStrict
 
         $index = null;
         if ($mediaID > 0) {
-            $raw = base64_decode(IPS_GetMediaContent($mediaID), true);
-            $index = is_string($raw) ? json_decode($raw, true) : null;
+            $raw = $this->ReadMediaData($mediaID);
+            if ($raw === null || $raw === '') {
+                // No content at all (e.g. the file was not written before a restart): there is nothing to keep,
+                // so a new index is started. Damaged content is handled below and never overwritten.
+                if ($this->GetBuffer('IndexMissingReported') === '') {
+                    $this->SetBuffer('IndexMissingReported', '1');
+                    $this->LogMessage($this->Translate('The image index could not be read. A new index is started, older images are no longer listed.'), KL_WARNING);
+                }
+                return $empty;
+            }
+            $index = json_decode($raw, true);
         }
         if (!$this->IsValidIndex($index)) {
             // Report only once per runtime
@@ -1558,8 +1567,27 @@ class CameraArchive extends IPSModuleStrict
         if ($mediaID <= 0) {
             return null;
         }
-        $data = base64_decode(IPS_GetMediaContent($mediaID), true);
-        return is_string($data) && $data !== '' ? $data : null;
+        $data = $this->ReadMediaData($mediaID);
+        return $data !== '' ? $data : null;
+    }
+
+    /**
+     * Decoded content of a medium, or null if it cannot be read. If the file of the medium does not exist,
+     * IPS_GetMediaContent returns false with a warning (the test stubs throw an exception instead).
+     */
+    private function ReadMediaData(int $MediaID): ?string
+    {
+        try {
+            $content = @IPS_GetMediaContent($MediaID);
+        } catch (Throwable $exception) {
+            return null;
+        }
+        if (!is_string($content)) {
+            $this->SendDebug('Storage', sprintf('Content of medium %d not available', $MediaID), 0);
+            return null;
+        }
+        $data = base64_decode($content, true);
+        return is_string($data) ? $data : null;
     }
 
     private function SendHookError(int $Code, string $Text): void
