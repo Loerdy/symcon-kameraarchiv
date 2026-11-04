@@ -21,10 +21,20 @@
     }
 
     #chips {
+        position: relative;
         display: flex;
         flex: none;
         gap: 6px;
         overflow-x: auto;
+    }
+
+    /* Scrollbars would cover the content on desktop systems: scrolling works by swiping or with the mouse wheel */
+    .scroller {
+        scrollbar-width: none;
+    }
+
+    .scroller::-webkit-scrollbar {
+        display: none;
     }
 
     .chip {
@@ -113,6 +123,7 @@
     }
 
     #strip {
+        position: relative;
         display: flex;
         flex: 1 1 auto;
         gap: 4px;
@@ -167,7 +178,7 @@
     }
 </style>
 <div id="app">
-    <div id="chips"></div>
+    <div id="chips" class="scroller"></div>
     <div id="main">
         <img id="image" class="hidden" alt="">
         <div id="message"></div>
@@ -179,7 +190,7 @@
     </div>
     <div id="bar">
         <select id="filter"></select>
-        <div id="strip"></div>
+        <div id="strip" class="scroller"></div>
     </div>
 </div>
 <script>
@@ -243,6 +254,29 @@
         return date.toLocaleDateString([], { day: '2-digit', month: '2-digit' }) + ' ' + clock;
     }
 
+    // Keeps the active element of a horizontal list visible (the lists are rebuilt on every update)
+    function scrollToActive(list) {
+        const active = list.querySelector('.active');
+        if (!active) {
+            return;
+        }
+        if (active.offsetLeft < list.scrollLeft) {
+            list.scrollLeft = active.offsetLeft;
+        } else if (active.offsetLeft + active.offsetWidth > list.scrollLeft + list.clientWidth) {
+            list.scrollLeft = active.offsetLeft + active.offsetWidth - list.clientWidth;
+        }
+    }
+
+    // The mouse wheel scrolls the horizontal lists, as their scrollbars are hidden
+    for (const list of document.querySelectorAll('.scroller')) {
+        list.addEventListener('wheel', (event) => {
+            if (Math.abs(event.deltaY) > Math.abs(event.deltaX) && list.scrollWidth > list.clientWidth) {
+                list.scrollLeft += event.deltaY;
+                event.preventDefault();
+            }
+        }, { passive: false });
+    }
+
     function showMessage(message) {
         document.getElementById('image').classList.add('hidden');
         document.getElementById('badges').classList.add('hidden');
@@ -268,6 +302,7 @@
             });
             chips.appendChild(chip);
         }
+        scrollToActive(chips);
     }
 
     function renderFilter(camera) {
@@ -313,6 +348,7 @@
             });
             strip.appendChild(thumb);
         }
+        scrollToActive(strip);
     }
 
     function render() {
