@@ -39,6 +39,8 @@ class CameraArchiveConsole extends IPSModuleStrict
 
     // The tile of the camera instances is reused for the overview of all cameras
     private const TILE_FILE = __DIR__ . '/../CameraArchiveCamera/module.html';
+    // Actions of the tile, executed by the camera instances
+    private const TILE_ACTIONS = ['TileSnapshot', 'TileKeep', 'TileDelete'];
 
     public function Create(): void
     {
@@ -110,6 +112,24 @@ class CameraArchiveConsole extends IPSModuleStrict
             default        => ['ok' => false, 'message' => 'Invalid request']
         };
         return (string) json_encode($result, JSON_INVALID_UTF8_SUBSTITUTE);
+    }
+
+    /**
+     * Actions of the overview tile. The value names the camera instance ("camera"); the console only forwards it to
+     * its own camera instances, which validate and execute the action.
+     */
+    public function RequestAction(string $Ident, mixed $Value): void
+    {
+        if (!in_array($Ident, self::TILE_ACTIONS, true)) {
+            throw new Exception(sprintf('Invalid ident %s', $Ident));
+        }
+        $data = is_string($Value) ? json_decode($Value, true) : null;
+        $cameraID = is_array($data) ? ($data['camera'] ?? null) : null;
+        if (!is_int($cameraID) || $cameraID <= 0) {
+            $this->SendDebug('Tile', sprintf('%s: invalid camera', $Ident), 0);
+            return;
+        }
+        $this->SendToChildren(['Command' => 'TileAction', 'InstanceID' => $cameraID, 'Action' => $Ident, 'Value' => $Value]);
     }
 
     /**

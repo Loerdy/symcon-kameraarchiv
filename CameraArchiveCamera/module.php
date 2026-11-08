@@ -49,6 +49,13 @@ class CameraArchiveCamera extends IPSModuleStrict
     private const HOOK_PREFIX = 'camera-archive-';
     private const TOKEN_ATTRIBUTE = 'HookToken';
 
+    // Actions of the tile (requestAction); the value is a JSON string with slot, seq and for "TileKeep" keep
+    private const TILE_ACTIONS = ['TileSnapshot', 'TileKeep', 'TileDelete'];
+    // Last error of a snapshot for the tile, only in RAM
+    private const NOTICE_BUFFER = 'TileNotice';
+    // Seconds after which a notice is no longer shown in a newly opened tile
+    private const NOTICE_MAX_AGE = 30;
+
     public function Create(): void
     {
         // Never delete this line!
@@ -97,6 +104,10 @@ class CameraArchiveCamera extends IPSModuleStrict
             $this->ProcessQueue();
             return;
         }
+        if (in_array($Ident, self::TILE_ACTIONS, true)) {
+            $this->HandleTileAction($Ident, $Value);
+            return;
+        }
         throw new Exception(sprintf('Invalid ident %s', $Ident));
     }
 
@@ -120,6 +131,12 @@ class CameraArchiveCamera extends IPSModuleStrict
             case 'Settings':
                 if (is_bool($request['MemoryCache'] ?? null)) {
                     $this->ApplyCacheMode($request['MemoryCache']);
+                }
+                return '';
+            case 'TileAction':
+                // Action from the overview tile of the console, sent to all cameras of the console
+                if (($request['InstanceID'] ?? null) === $this->InstanceID && in_array($request['Action'] ?? null, self::TILE_ACTIONS, true)) {
+                    $this->HandleTileAction($request['Action'], $request['Value'] ?? null);
                 }
                 return '';
         }
@@ -287,11 +304,11 @@ class CameraArchiveCamera extends IPSModuleStrict
             return;
         }
         try {
-            $data = $this->ReadStoredImage($slot, $seq);
+            $image = $this->ReadStoredImage($slot, $seq);
         } finally {
             $this->LeaveStorageLock();
         }
-        if ($data === null) {
+        if ($image === null) {
             $this->SendDebug('Hook', sprintf('Slot %d seq %d: not found', $slot, $seq), 0);
             $this->SendHookError(404, 'Not Found');
             return;
@@ -300,7 +317,10 @@ class CameraArchiveCamera extends IPSModuleStrict
         header('Content-Type: image/jpeg');
         header('Cache-Control: private, max-age=86400');
         header('X-Content-Type-Options: nosniff');
-        echo $data;
+        if (($_GET['download'] ?? null) === '1') {
+            header('Content-Disposition: ' . $this->GetDownloadDisposition($image['time']));
+        }
+        echo $image['data'];
     }
 
     /**
@@ -687,7 +707,96 @@ class CameraArchiveCamera extends IPSModuleStrict
         foreach ($due as $entry) {
             $result = $this->SnapshotAndStore($entry['trigger']);
             $this->SendDebug('Queue', sprintf('%s: %s', $entry['trigger'], $result['ok'] ? 'stored' : $result['message']), 0);
+            if (!$result['ok']) {
+                // Shown in open tiles, e.g. after "Take snapshot" in the tile
+                $this->SetTileNotice($result['message']);
+            }
         }
+    }
+
+    /**
+     * Action of the tile. The value comes from the browser and is validated before anything is changed.
+     */
+    private function HandleTileAction(string $Action, mixed $Value): void
+    {
+        $data = is_string($Value) ? json_decode($Value, true) : null;
+        if (!is_array($data)) {
+            $this->SendDebug('Tile', sprintf('%s: invalid value', $Action), 0);
+            return;
+        }
+        if ($Action === 'TileSnapshot') {
+            $this->QueueTileSnapshot();
+            return;
+        }
+        $slot = $data['slot'] ?? null;
+        $seq = $data['seq'] ?? null;
+        if (!is_int($slot) || $slot < self::IMAGES_MIN || $slot > self::IMAGES_MAX || !is_int($seq) || $seq < 1) {
+            $this->SendDebug('Tile', sprintf('%s: invalid image', $Action), 0);
+            return;
+        }
+        if ($Action === 'TileKeep') {
+            if (!is_bool($data['keep'] ?? null)) {
+                $this->SendDebug('Tile', 'TileKeep: invalid value for keep', 0);
+                return;
+            }
+            $this->SetImageKeep($slot, $seq, $data['keep']);
+        } else {
+            $this->DeleteImage($slot, $seq);
+        }
+        // Also if nothing was changed (image already overwritten): the tile gets the current state
+        $this->UpdateTile();
+    }
+
+    /**
+     * "Take snapshot" in the tile: queued like a trigger, so the request of the tile does not wait for the camera.
+     * Trigger and camera lockout times do not apply; a second request while one is waiting is ignored.
+     */
+    private function QueueTileSnapshot(): void
+    {
+        if ($this->CheckConfiguration() !== IS_ACTIVE) {
+            $this->SetTileNotice($this->Translate('Snapshot not possible: the camera is not set up completely.'));
+            return;
+        }
+        if (!$this->EnterQueueLock()) {
+            $this->SetTileNotice($this->Translate('Storage is busy, please try again'));
+            return;
+        }
+        try {
+            $state = $this->LoadTriggerState();
+            foreach ($state['queue'] as $entry) {
+                if (($entry['tile'] ?? false) === true) {
+                    $this->SendDebug('Tile', 'Snapshot already queued', 0);
+                    return;
+                }
+            }
+            $state['queue'][] = ['due' => microtime(true), 'trigger' => 'manual', 'tile' => true];
+            $this->SaveTriggerState($state);
+            $this->ScheduleQueue($state['queue']);
+        } finally {
+            $this->LeaveQueueLock();
+        }
+    }
+
+    /**
+     * Stores a message for open tiles and sends it right away. Not persistent, so it does not reach the flash.
+     */
+    private function SetTileNotice(string $Text): void
+    {
+        $this->SetBuffer(self::NOTICE_BUFFER, (string) json_encode(['id' => uniqid('', true), 'text' => $Text, 'time' => time()]));
+        $this->UpdateTile();
+    }
+
+    /**
+     * Notice for the tile state; "age" lets the tile skip old notices without relying on the clock of the browser.
+     */
+    private function GetTileNotice(): ?array
+    {
+        $notice = json_decode($this->GetBuffer(self::NOTICE_BUFFER), true);
+        if (!is_array($notice) || !is_string($notice['id'] ?? null) || !is_string($notice['text'] ?? null) || !is_int($notice['time'] ?? null)) {
+            return null;
+        }
+        $age = time() - $notice['time'];
+        return $age > self::NOTICE_MAX_AGE ? null : ['id' => $notice['id'], 'text' => $notice['text'], 'age' => max(0, $age)];
     }
 
     private function ScheduleQueue(array $Queue): void
@@ -918,6 +1027,72 @@ class CameraArchiveCamera extends IPSModuleStrict
     }
 
     /**
+     * Marks an image as "keep" or removes the mark. The sequence number makes sure that an image overwritten in the
+     * meantime is not changed. Returns true if the index was changed.
+     */
+    private function SetImageKeep(int $Slot, int $Seq, bool $Keep): bool
+    {
+        if (!$this->EnterStorageLock()) {
+            return false;
+        }
+        try {
+            $index = $this->LoadIndex();
+            if ($index === null) {
+                return false;
+            }
+            foreach ($index['images'] as &$entry) {
+                if ($entry['slot'] === $Slot && $entry['seq'] === $Seq) {
+                    if ($entry['keep'] === $Keep) {
+                        return false;
+                    }
+                    $entry['keep'] = $Keep;
+                    unset($entry);
+                    $this->SendDebug('Storage', sprintf('Slot %d: keep %s', $Slot, $Keep ? 'on' : 'off'), 0);
+                    return $this->SaveIndex($index, null);
+                }
+            }
+            unset($entry);
+            $this->SendDebug('Storage', sprintf('Slot %d seq %d: not found, keep not changed', $Slot, $Seq), 0);
+            return false;
+        } finally {
+            $this->LeaveStorageLock();
+        }
+    }
+
+    /**
+     * Deletes one image, also if it is marked as "keep". Its slot is used again for the next snapshot.
+     * Returns true if the image was removed from the index.
+     */
+    private function DeleteImage(int $Slot, int $Seq): bool
+    {
+        if (!$this->EnterStorageLock()) {
+            return false;
+        }
+        try {
+            $index = $this->LoadIndex();
+            if ($index === null) {
+                return false;
+            }
+            foreach ($index['images'] as $position => $entry) {
+                if ($entry['slot'] === $Slot && $entry['seq'] === $Seq) {
+                    array_splice($index['images'], $position, 1);
+                    if (!$this->SaveIndex($index, null)) {
+                        return false;
+                    }
+                    // The index no longer lists the image; the medium is removed afterwards like when trimming
+                    $this->DeleteSlotMedia($this->SlotIdent($Slot));
+                    $this->SendDebug('Storage', sprintf('Slot %d deleted', $Slot), 0);
+                    return true;
+                }
+            }
+            $this->SendDebug('Storage', sprintf('Slot %d seq %d: not found, nothing deleted', $Slot, $Seq), 0);
+            return false;
+        } finally {
+            $this->LeaveStorageLock();
+        }
+    }
+
+    /**
      * Idents of the slot media below the instance.
      */
     private function GetSlotIdents(): array
@@ -1129,18 +1304,18 @@ class CameraArchiveCamera extends IPSModuleStrict
     }
 
     /**
-     * Content of the image in the slot, if the slot still holds the image with this sequence number.
+     * Content (data) and time of the image in the slot, if the slot still holds the image with this sequence number.
      */
-    private function ReadStoredImage(int $Slot, int $Seq): ?string
+    private function ReadStoredImage(int $Slot, int $Seq): ?array
     {
-        $found = false;
+        $found = null;
         foreach ($this->LoadIndex()['images'] ?? [] as $entry) {
             if ($entry['slot'] === $Slot && $entry['seq'] === $Seq) {
-                $found = true;
+                $found = $entry;
                 break;
             }
         }
-        if (!$found) {
+        if ($found === null) {
             return null;
         }
         $mediaID = $this->FindMedia($this->SlotIdent($Slot), MEDIATYPE_IMAGE);
@@ -1148,7 +1323,19 @@ class CameraArchiveCamera extends IPSModuleStrict
             return null;
         }
         $data = $this->ReadMediaData($mediaID);
-        return $data !== '' ? $data : null;
+        return $data !== null && $data !== '' ? ['data' => $data, 'time' => $found['time']] : null;
+    }
+
+    /**
+     * Content-Disposition for a download: name of the instance and time, e.g. "Haustür_2026-11-08_143005.jpg".
+     * The plain filename is ASCII only (for old clients), filename* carries the UTF-8 name.
+     */
+    private function GetDownloadDisposition(int $Time): string
+    {
+        $name = trim((string) preg_replace('/[\x00-\x1F\x7F\/\\\\:*?"<>|]+/u', '_', IPS_GetName($this->InstanceID)));
+        $file = ($name !== '' ? $name : 'Camera') . '_' . date('Y-m-d_His', $Time) . '.jpg';
+        $ascii = (string) preg_replace('/[^A-Za-z0-9._-]+/', '_', $file);
+        return sprintf('attachment; filename="%s"; filename*=UTF-8\'\'%s', $ascii, rawurlencode($file));
     }
 
     /**
@@ -1203,7 +1390,8 @@ class CameraArchiveCamera extends IPSModuleStrict
             'hook'         => '/hook/' . self::HOOK_PREFIX . $this->InstanceID,
             'token'        => $this->ReadAttributeString(self::TOKEN_ATTRIBUTE),
             'images'       => $images,
-            'indexDamaged' => $index === null
+            'indexDamaged' => $index === null,
+            'notice'       => $this->GetTileNotice()
         ];
     }
 

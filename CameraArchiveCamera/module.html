@@ -101,6 +101,82 @@
         font-size: 12px;
     }
 
+    /* Action buttons lie on the image like the badges: fixed colors with enough contrast in every design */
+    .actions {
+        position: absolute;
+        top: 8px;
+        right: 8px;
+        display: flex;
+        gap: 6px;
+    }
+
+    .action {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: 4px;
+        min-width: 36px;
+        height: 36px;
+        padding: 0 8px;
+        border: none;
+        border-radius: 18px;
+        background: rgba(0, 0, 0, 0.55);
+        color: #ffffff;
+        font: inherit;
+        font-size: 13px;
+        white-space: nowrap;
+        cursor: pointer;
+    }
+
+    .action svg {
+        flex: none;
+        width: 20px;
+        height: 20px;
+        fill: none;
+        stroke: currentColor;
+        stroke-width: 2;
+        stroke-linecap: round;
+        stroke-linejoin: round;
+    }
+
+    .action.on {
+        background: var(--accent);
+    }
+
+    .action.on svg {
+        fill: currentColor;
+    }
+
+    .action.confirm {
+        background: #c62828;
+    }
+
+    .action:disabled {
+        cursor: default;
+    }
+
+    .action.busy svg {
+        animation: busy 1s linear infinite;
+    }
+
+    @keyframes busy {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    #notice {
+        position: absolute;
+        top: 52px;
+        left: 8px;
+        right: 8px;
+        padding: 6px 10px;
+        border-radius: 6px;
+        background: rgba(198, 40, 40, 0.92);
+        color: #ffffff;
+        font-size: 13px;
+    }
+
     #bar {
         display: flex;
         flex: none;
@@ -244,6 +320,22 @@
             <span id="badgeTime" class="badge"></span>
             <span id="badgeKeep" class="badge"></span>
         </div>
+        <div id="actions" class="actions">
+            <button id="actionSnapshot" class="action" type="button">
+                <svg viewBox="0 0 24 24"><path d="M4 7h3l2-3h6l2 3h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="4"/></svg>
+            </button>
+            <button id="actionKeep" class="action" type="button">
+                <svg viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z"/></svg>
+            </button>
+            <button id="actionDownload" class="action" type="button">
+                <svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 20h16"/></svg>
+            </button>
+            <button id="actionDelete" class="action" type="button">
+                <svg viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13"/></svg>
+                <span id="actionDeleteLabel" class="hidden"></span>
+            </button>
+        </div>
+        <div id="notice" class="hidden"></div>
     </div>
     <div id="bar">
         <select id="filter"></select>
@@ -274,6 +366,11 @@
     const tile = { cameras: [], overview: false };
     // Selected camera, selected image (null: always show the newest), trigger filter ('' = all), enlarged view
     const view = { camera: null, seq: null, filter: '', viewer: false, fullscreen: false };
+    // Actions: snapshot requested per camera (newest sequence number at the request), delete waiting for the
+    // second tap, notices already shown per camera
+    const actions = { busy: {}, confirm: null, confirmTimer: null, notices: {}, noticeTimer: null };
+    // Without an answer the busy display ends after this time (the camera answers within the curl timeouts)
+    const SNAPSHOT_BUSY_MS = 20000;
 
     function text(original) {
         return typeof translate === 'function' ? translate(original) : original;
@@ -293,7 +390,42 @@
         }
         tile.cameras = Array.isArray(data.cameras) ? data.cameras : [];
         tile.overview = data.overview === true;
+        for (const camera of tile.cameras) {
+            const busy = actions.busy[camera.id];
+            if (busy && camera.images.some((image) => image.seq > busy.seq)) {
+                clearBusy(camera.id);
+            }
+            const notice = camera.notice;
+            if (notice && typeof notice.id === 'string' && actions.notices[camera.id] !== notice.id) {
+                actions.notices[camera.id] = notice.id;
+                clearBusy(camera.id);
+                showNotice((tile.cameras.length > 1 ? camera.name + ': ' : '') + notice.text);
+            }
+        }
         render();
+    }
+
+    function clearBusy(cameraID) {
+        if (actions.busy[cameraID]) {
+            clearTimeout(actions.busy[cameraID].timer);
+            delete actions.busy[cameraID];
+        }
+    }
+
+    function showNotice(message) {
+        const notice = document.getElementById('notice');
+        notice.textContent = message;
+        notice.classList.remove('hidden');
+        clearTimeout(actions.noticeTimer);
+        actions.noticeTimer = setTimeout(() => notice.classList.add('hidden'), 8000);
+    }
+
+    // The camera instance (or the console for the overview) validates the values before changing anything
+    function sendAction(ident, camera, values) {
+        if (typeof requestAction !== 'function') {
+            return;
+        }
+        requestAction(ident, JSON.stringify(Object.assign({ camera: camera.id }, values)));
     }
 
     function imageUrl(camera, image) {
@@ -444,6 +576,7 @@
         const camera = tile.cameras.find((entry) => entry.id === view.camera);
         if (!camera) {
             bar.classList.add('hidden');
+            document.getElementById('actions').classList.add('hidden');
             closeViewer();
             showMessage(text(tile.overview ? 'No cameras yet. Create the camera instances with the configurator.' : 'No camera'));
             return;
@@ -455,6 +588,7 @@
         bar.classList.toggle('hidden', camera.images.length === 0);
         renderStrip(camera, images, selected);
         renderViewer();
+        renderActions(camera, selected);
 
         if (!selected) {
             showMessage(text(camera.indexDamaged ? 'The image index is damaged.' : 'No images yet'));
@@ -477,6 +611,94 @@
         document.getElementById('badgeKeep').textContent = text('Kept');
         document.getElementById('badgeKeep').classList.toggle('hidden', !selected.keep);
         document.getElementById('badges').classList.remove('hidden');
+    }
+
+    // Snapshot is always possible; keep, download and delete refer to the selected image
+    function renderActions(camera, selected) {
+        document.getElementById('actions').classList.remove('hidden');
+        const snapshot = document.getElementById('actionSnapshot');
+        const busy = Boolean(actions.busy[camera.id]);
+        snapshot.classList.toggle('busy', busy);
+        snapshot.disabled = busy;
+
+        if (actions.confirm && (!selected || actions.confirm.camera !== camera.id || actions.confirm.seq !== selected.seq)) {
+            resetConfirm();
+        }
+        for (const id of ['actionKeep', 'actionDownload', 'actionDelete']) {
+            document.getElementById(id).classList.toggle('hidden', !selected);
+        }
+        if (!selected) {
+            return;
+        }
+        const keep = document.getElementById('actionKeep');
+        keep.classList.toggle('on', selected.keep);
+        keep.title = text(selected.keep ? 'Do not keep image' : 'Keep image');
+        const confirming = actions.confirm !== null;
+        document.getElementById('actionDelete').classList.toggle('confirm', confirming);
+        document.getElementById('actionDeleteLabel').classList.toggle('hidden', !confirming);
+    }
+
+    function resetConfirm() {
+        clearTimeout(actions.confirmTimer);
+        actions.confirm = null;
+    }
+
+    function takeSnapshot() {
+        const { camera } = currentSelection();
+        if (!camera || actions.busy[camera.id]) {
+            return;
+        }
+        const newest = camera.images.reduce((max, image) => Math.max(max, image.seq), 0);
+        const timer = setTimeout(() => {
+            delete actions.busy[camera.id];
+            render();
+        }, SNAPSHOT_BUSY_MS);
+        actions.busy[camera.id] = { seq: newest, timer };
+        // The new image is shown as soon as it arrives
+        view.seq = null;
+        view.filter = '';
+        sendAction('TileSnapshot', camera, {});
+        render();
+    }
+
+    function toggleKeep() {
+        const { camera, selected } = currentSelection();
+        if (camera && selected) {
+            sendAction('TileKeep', camera, { slot: selected.slot, seq: selected.seq, keep: !selected.keep });
+        }
+    }
+
+    function downloadImage() {
+        const { camera, selected } = currentSelection();
+        if (!camera || !selected) {
+            return;
+        }
+        const link = document.createElement('a');
+        link.href = imageUrl(camera, selected) + '&download=1';
+        link.download = '';
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+    }
+
+    // First tap asks, the second tap within a few seconds deletes
+    function deleteImage() {
+        const { camera, selected } = currentSelection();
+        if (!camera || !selected) {
+            return;
+        }
+        if (actions.confirm && actions.confirm.camera === camera.id && actions.confirm.seq === selected.seq) {
+            resetConfirm();
+            sendAction('TileDelete', camera, { slot: selected.slot, seq: selected.seq });
+        } else {
+            resetConfirm();
+            actions.confirm = { camera: camera.id, seq: selected.seq };
+            actions.confirmTimer = setTimeout(() => {
+                actions.confirm = null;
+                render();
+            }, 4000);
+        }
+        render();
     }
 
     // Enlarged view of the selected image. Fullscreen is requested if the browser allows it for the tile;
@@ -561,6 +783,14 @@
     document.getElementById('viewerPrev').title = text('Newer image');
     document.getElementById('viewerNext').title = text('Older image');
     document.getElementById('viewerClose').title = text('Close');
+    document.getElementById('actionSnapshot').addEventListener('click', takeSnapshot);
+    document.getElementById('actionKeep').addEventListener('click', toggleKeep);
+    document.getElementById('actionDownload').addEventListener('click', downloadImage);
+    document.getElementById('actionDelete').addEventListener('click', deleteImage);
+    document.getElementById('actionSnapshot').title = text('Take snapshot');
+    document.getElementById('actionDownload').title = text('Download');
+    document.getElementById('actionDelete').title = text('Delete image');
+    document.getElementById('actionDeleteLabel').textContent = text('Delete?');
 
     // Swiping changes the image, a tap on the image closes the view
     (function () {

@@ -2,7 +2,7 @@
 
 Eine Kamera der UniFi-Protect-Konsole: nimmt per Auslöser oder manuell Snapshots auf, speichert die neuesten Bilder als Medienobjekte unterhalb der Instanz und zeigt sie in einer Kachel an.
 
-> Status: in Entwicklung. Aktionen in der Kachel (Snapshot, Behalten, Löschen, Download), Mail und NAS folgen.
+> Status: in Entwicklung. Mail und NAS folgen.
 
 ### Inhaltsverzeichnis
 
@@ -99,9 +99,14 @@ Die Instanz bringt eine eigene Kachel mit (HTML-SDK). Die Kachel der Konsole zei
 
 * In der Mitte das ausgewählte Bild mit Auslöser und Zeit. Ohne Auswahl wird immer das neueste Bild angezeigt, neue Snapshots erscheinen automatisch.
 * Unten die Archivleiste mit Vorschaubildern, neueste zuerst, und ein Filter nach Auslöser (sobald es mehr als einen Auslöser gibt).
+* Oben rechts auf dem Bild liegen die Aktionen:
+  * **Snapshot aufnehmen** (Kamera-Symbol): Das neue Bild erscheint, sobald es gespeichert ist. Während der Aufnahme dreht sich das Symbol. Schlägt die Aufnahme fehl, erscheint ein Hinweis in der Kachel. Sperrzeiten und Mindestabstand der Auslöser gelten hier nicht.
+  * **Behalten** (Lesezeichen): Ein markiertes Bild wird vom Ringpuffer nicht überschrieben. Erneutes Antippen hebt die Markierung auf.
+  * **Herunterladen**: speichert das Bild als `<Name der Instanz>_<Datum>_<Uhrzeit>.jpg`. Ob die Datei gespeichert oder nur angezeigt wird, hängt von Browser bzw. App ab.
+  * **Löschen** (Papierkorb): Das erste Antippen fragt nach („Löschen?“), das zweite innerhalb von 4 Sekunden löscht das Bild, auch wenn es als „Behalten“ markiert ist.
 * Antippen des großen Bildes öffnet die Vollbildansicht. Wischen oder die Pfeile wechseln zum neueren oder älteren Bild, Antippen des Bildes oder das Kreuz schließt die Ansicht. Am Rechner gehen auch die Pfeiltasten und Escape. Erlaubt der Browser bzw. die App für die Kachel echtes Vollbild, füllt die Ansicht den ganzen Bildschirm, sonst die ganze Kachel.
 
-Die Bilder liefert der WebHook der Instanz (`/hook/camera-archive-<InstanzID>`). WebHooks sind ohne Anmeldung erreichbar, auch über Symcon Connect. Der WebHook liefert deshalb nur Bilder, wenn die Anfrage den geheimen Schlüssel der Instanz enthält. Diesen Schlüssel erhalten nur die Kacheln der Instanz und der Konsole, die selbst durch das Passwort der Visualisierung geschützt sind.
+Die Bilder liefert der WebHook der Instanz (`/hook/camera-archive-<InstanzID>`). WebHooks sind ohne Anmeldung erreichbar, auch über Symcon Connect. Der WebHook liefert deshalb nur Bilder, wenn die Anfrage den geheimen Schlüssel der Instanz enthält. Diesen Schlüssel erhalten nur die Kacheln der Instanz und der Konsole, die selbst durch das Passwort der Visualisierung geschützt sind. Die Aktionen der Kachel laufen nicht über den WebHook, sondern über die Visualisierung.
 
 ### 7. PHP-Befehlsreferenz
 

@@ -2,7 +2,7 @@
 
 Verbindung zur UniFi-Protect-Konsole. Die Kamera-Instanzen holen ihre Snapshots über diese Instanz. Ihre Kachel zeigt alle verbundenen Kameras auf einen Blick.
 
-> Status: in Entwicklung. Aktionen in der Kachel, Mail und NAS folgen.
+> Status: in Entwicklung. Mail und NAS folgen.
 
 ### Inhaltsverzeichnis
 
@@ -85,7 +85,7 @@ Das Modul legt keine Statusvariablen und keine Profile an.
 
 Die Kachel der Konsole zeigt alle verbundenen Kameras. Sie sieht aus wie die Kachel einer Kamera, hat aber oben eine Leiste mit einem Button je Kamera. Der Button trägt den Namen der Kamera-Instanz. Zum Umbenennen eines Buttons wird also die Kamera-Instanz umbenannt. Die Reihenfolge folgt der Position der Kamera-Instanzen im Objektbaum, danach dem Namen.
 
-Die Bedienung (Archivleiste, Filter, Vollbild) ist in der [Beschreibung der Kamera](../CameraArchiveCamera/README.md#6-visualisierung) erklärt.
+Die Bedienung (Archivleiste, Filter, Vollbild, Aktionen) ist in der [Beschreibung der Kamera](../CameraArchiveCamera/README.md#6-visualisierung) erklärt.
 
 ### 7. PHP-Befehlsreferenz
 

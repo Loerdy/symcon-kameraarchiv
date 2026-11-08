@@ -23,3 +23,4 @@ Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 - **Übersichtskachel** der Konsole mit allen Kameras. Die Kamera-Buttons tragen den Namen der Kamera-Instanz und lassen sich so frei benennen.
 - **Vollbildansicht:** Antippen des Bildes öffnet es groß, mit Wischen bzw. Pfeilen zum neueren oder älteren Bild. Echtes Vollbild, wenn die Visualisierung es für die Kachel erlaubt, sonst über die ganze Kachel.
 - **WebHook** `/hook/camera-archive-<InstanzID>` je Kamera liefert die Bilder an die Kacheln, nur mit dem geheimen Schlüssel der Instanz.
+- **Aktionen in der Kachel** (Kamera und Übersicht): Snapshot aufnehmen, Bild behalten bzw. nicht mehr behalten, herunterladen und löschen (mit Rückfrage). Ein fehlgeschlagener Snapshot wird in der Kachel gemeldet.

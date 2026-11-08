@@ -89,7 +89,7 @@ Keine Statusvariablen ohne Opt-in (Lizenzlimit).
 2. Quelle Protect-API: Kameraliste abrufen (UpdateFormField), Snapshot abrufen, Verbindungstest
 3. RAM-Speicher: Slot-Pool (cached Media), Index, Rotation, optionale Verkleinerung, Speicheranzeige
 4. Auslöser: Liste, MessageSink, Verzögerungs-Warteschlange mit einem Timer, Sperrzeit
-5. Kachel: HTML-SDK, WebHook für Bilder (5a); Aktionen Snapshot jetzt, Behalten, Löschen, Download (5b)
+5. Kachel: HTML-SDK, WebHook für Bilder (5a); Aktionen Snapshot jetzt, Behalten, Löschen, Download (5b, per `requestAction` mit JSON-Wert; die Übersichtskachel leitet über die Konsole an die Kamera weiter, Snapshot über die Warteschlange)
 5u. Umbau: Konsole, Konfigurator, Instanz je Kamera, Übersichtskachel, Vollbildansicht
 6. Mail: SMTP-Instanz wählbar, manuell und automatisch je Auslöser
 7. Synology WebDAV: Upload, Rotation, Offline-Warteschlange, Nachladen in der Kachel
