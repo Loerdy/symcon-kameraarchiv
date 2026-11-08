@@ -145,6 +145,29 @@
         },
         {
             "type": "Label",
+            "caption": "Live view in the tile (about one image per second, not stored)",
+            "bold": true
+        },
+        {
+            "type": "CheckBox",
+            "name": "LiveAutoStart",
+            "caption": "Start the live view when the tile is shown"
+        },
+        {
+            "type": "NumberSpinner",
+            "name": "LiveDuration",
+            "caption": "Maximum duration of the live view",
+            "suffix": "min",
+            "minimum": 1,
+            "maximum": 30
+        },
+        {
+            "type": "Label",
+            "caption": "Every open and visible tile with live view asks the Protect console about once per second. The live view stops when the tile is no longer visible and starts again automatically when it is shown again.",
+            "italic": true
+        },
+        {
+            "type": "Label",
             "caption": "NAS: the console uploads the original of every snapshot (address and access are set in the console).",
             "bold": true
         },

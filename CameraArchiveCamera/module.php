@@ -64,6 +64,9 @@ class CameraArchiveCamera extends IPSModuleStrict
     private const LIVE_SHARE_SECONDS = 1.0;
     private const LIVE_BUFFER_MAX = 300000;
     private const LIVE_LOCK_TIMEOUT = 8000;
+    // Maximum duration of a live view in minutes (also for the automatic start)
+    private const LIVE_DURATION_DEFAULT = 2;
+    private const LIVE_DURATION_MAX = 30;
 
     // Notifications after a stored snapshot of a trigger
     private const NOTIFY_MAIL = 0;
@@ -95,6 +98,8 @@ class CameraArchiveCamera extends IPSModuleStrict
         $this->RegisterPropertyBoolean('NASUpload', false);
         $this->RegisterPropertyString('NASFolder', '');
         $this->RegisterPropertyInteger('NASRetention', self::NAS_RETENTION_DEFAULT);
+        $this->RegisterPropertyBoolean('LiveAutoStart', false);
+        $this->RegisterPropertyInteger('LiveDuration', self::LIVE_DURATION_DEFAULT);
 
         // Secret of the image WebHook, created once in ApplyChanges
         $this->RegisterAttributeString(self::TOKEN_ATTRIBUTE, '');
@@ -1809,6 +1814,7 @@ class CameraArchiveCamera extends IPSModuleStrict
                 && microtime(true) - $shared['time'] < self::LIVE_SHARE_SECONDS) {
                 $data = base64_decode($shared['image'], true);
                 if (is_string($data) && $data !== '') {
+                    $this->SendDebug('Live', 'Shared image delivered', 0);
                     return $data;
                 }
             }
@@ -1821,6 +1827,7 @@ class CameraArchiveCamera extends IPSModuleStrict
                 return null;
             }
             $this->SetBuffer(self::LIVE_BUFFER, strlen($image) <= self::LIVE_BUFFER_MAX ? (string) json_encode(['time' => microtime(true), 'image' => $image]) : '');
+            $this->SendDebug('Live', sprintf('New image, %d bytes', strlen($data)), 0);
             return $data;
         } finally {
             IPS_SemaphoreLeave('CAR_Live_' . $this->InstanceID);
@@ -1896,6 +1903,9 @@ class CameraArchiveCamera extends IPSModuleStrict
             'nas'          => $this->ReadPropertyBoolean('NASUpload'),
             // The tile offers the live view
             'live'         => $this->CheckConfiguration() === IS_ACTIVE,
+            // Start the live view when the tile is shown, and its maximum duration in seconds
+            'liveAuto'     => $this->ReadPropertyBoolean('LiveAutoStart'),
+            'liveMax'      => max(1, min(self::LIVE_DURATION_MAX, $this->ReadPropertyInteger('LiveDuration'))) * 60,
             'notice'       => $this->GetTileNotice()
         ];
     }

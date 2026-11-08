@@ -405,11 +405,16 @@
     const archive = { camera: null, days: [], date: '', files: [], loading: false, error: '', request: '', timer: null, counter: 0 };
     const ARCHIVE_TIMEOUT_MS = 20000;
     // Live view: images are loaded one after another (about one per second) as long as the tile is visible,
-    // at most LIVE_MAX_MS. After LIVE_MAX_ERRORS failed images in a row it stops.
-    const live = { camera: null, running: false, url: '', time: null, errors: 0, timer: null, stopTimer: null };
+    // at most the duration set in the camera ("liveMax", seconds). After LIVE_MAX_ERRORS failed images in a row it
+    // stops. "suppressed": stopped by the user, by the maximum duration or by errors; the automatic start waits
+    // until the tile is shown again.
+    const live = { camera: null, running: false, url: '', time: null, errors: 0, timer: null, stopTimer: null, suppressed: false };
     const LIVE_INTERVAL_MS = 1000;
-    const LIVE_MAX_MS = 120000;
+    const LIVE_DEFAULT_MAX_S = 120;
     const LIVE_MAX_ERRORS = 3;
+    // The tile is visible if the page is shown (not locked, not in the background) and the tile is on the screen
+    // (not on another page of the visualization, not scrolled away)
+    const visibility = { page: !document.hidden, screen: true };
     // Actions: snapshot requested per camera (newest sequence number at the request), delete waiting for the
     // second tap, notices already shown per camera
     const actions = { busy: {}, confirm: null, confirmTimer: null, notices: {}, noticeTimer: null };
@@ -451,6 +456,7 @@
             }
         }
         render();
+        autoStartLive();
     }
 
     function clearBusy(cameraID) {
@@ -510,10 +516,12 @@
         live.running = true;
         live.camera = camera.id;
         live.errors = 0;
+        const maxSeconds = typeof camera.liveMax === 'number' && camera.liveMax > 0 ? camera.liveMax : LIVE_DEFAULT_MAX_S;
         live.stopTimer = setTimeout(() => {
             stopLive();
+            live.suppressed = true;
             render();
-        }, LIVE_MAX_MS);
+        }, maxSeconds * 1000);
         loadLiveImage(camera);
     }
 
@@ -558,6 +566,7 @@
             live.errors++;
             if (live.errors >= LIVE_MAX_ERRORS) {
                 stopLive();
+                live.suppressed = true;
                 showNotice(text('Live image not available'));
                 render();
             }
@@ -566,6 +575,35 @@
                 live.timer = setTimeout(() => loadLiveImage(camera), Math.max(0, LIVE_INTERVAL_MS - (Date.now() - started)));
             }
         });
+    }
+
+    function tileVisible() {
+        return visibility.page && visibility.screen;
+    }
+
+    // Automatic start of the live view (option of the camera) while the tile shows the latest images
+    function autoStartLive() {
+        const camera = tile.cameras.find((entry) => entry.id === view.camera);
+        if (camera && camera.live === true && camera.liveAuto === true && tileVisible() && !live.running
+            && !live.suppressed && view.mode === 'latest' && view.seq === null) {
+            startLive(camera);
+            render();
+        }
+    }
+
+    // Hidden: the live view stops. Shown again: a stop by the user or the maximum duration is forgotten and the
+    // automatic start may run again.
+    function updateVisibility(page, screen) {
+        const wasVisible = tileVisible();
+        visibility.page = page;
+        visibility.screen = screen;
+        if (!tileVisible() && live.running) {
+            stopLive();
+            render();
+        } else if (tileVisible() && !wasVisible) {
+            live.suppressed = false;
+            autoStartLive();
+        }
     }
 
     // Images of the current mode, newest first
@@ -680,6 +718,7 @@
             chip.textContent = camera.name;
             chip.addEventListener('click', () => {
                 stopLive();
+                live.suppressed = false;
                 view.camera = camera.id;
                 view.seq = null;
                 view.filter = '';
@@ -692,6 +731,7 @@
                     }
                 }
                 render();
+                autoStartLive();
             });
             chips.appendChild(chip);
         }
@@ -761,6 +801,7 @@
             thumb.append(picture, label);
             thumb.addEventListener('click', () => {
                 stopLive();
+                live.suppressed = true;
                 selectImage(images, image);
                 render();
             });
@@ -1111,18 +1152,23 @@
         }
         if (liveActive(camera)) {
             stopLive();
+            live.suppressed = true;
         } else {
+            live.suppressed = false;
             startLive(camera);
         }
         render();
     });
-    // A hidden tile (other page, locked phone) ends the live view, so that no images are loaded unnoticed
-    document.addEventListener('visibilitychange', () => {
-        if (document.hidden && live.running) {
-            stopLive();
-            render();
-        }
-    });
+    // A hidden tile (locked phone, app in the background, other page, scrolled away) ends the live view, so that no
+    // images are loaded unnoticed. Whether the visualization removes or only hides tiles of other pages is not
+    // documented: the IntersectionObserver also covers hidden tiles.
+    document.addEventListener('visibilitychange', () => updateVisibility(!document.hidden, visibility.screen));
+    if (typeof IntersectionObserver === 'function') {
+        new IntersectionObserver((entries) => {
+            const entry = entries[entries.length - 1];
+            updateVisibility(visibility.page, entry.isIntersecting);
+        }).observe(document.getElementById('app'));
+    }
     document.getElementById('actionSnapshot').addEventListener('click', takeSnapshot);
     document.getElementById('actionKeep').addEventListener('click', toggleKeep);
     document.getElementById('actionDownload').addEventListener('click', downloadImage);

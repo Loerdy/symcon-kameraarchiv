@@ -209,6 +209,22 @@ class TileActionTest extends TestCase
         $this->assertSame([], $this->images($module));
     }
 
+    public function testLiveOptionsInTileState(): void
+    {
+        [$id, $module] = $this->createCamera();
+        $state = $this->state($module);
+        $this->assertFalse($state['liveAuto']);
+        $this->assertSame(120, $state['liveMax']);
+
+        IPS_SetProperty($id, 'LiveAutoStart', true);
+        IPS_SetProperty($id, 'LiveDuration', 99);
+        IPS_ApplyChanges($id);
+        $state = $this->state($module);
+        $this->assertTrue($state['liveAuto']);
+        // Limited to 30 minutes
+        $this->assertSame(1800, $state['liveMax']);
+    }
+
     public function testLiveImageNeedsCompleteConfiguration(): void
     {
         $id = IPS_CreateInstance(self::CAMERA);
