@@ -349,6 +349,9 @@
             <span id="badgeKeep" class="badge"></span>
         </div>
         <div id="actions" class="actions">
+            <button id="actionLive" class="action" type="button">
+                <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="2.5"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M5 5a10 10 0 0 0 0 14M19 5a10 10 0 0 1 0 14"/></svg>
+            </button>
             <button id="actionSnapshot" class="action" type="button">
                 <svg viewBox="0 0 24 24"><path d="M4 7h3l2-3h6l2 3h3a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="4"/></svg>
             </button>
@@ -401,6 +404,12 @@
     // answers to other requests (e.g. of another viewer of the same instance) are ignored.
     const archive = { camera: null, days: [], date: '', files: [], loading: false, error: '', request: '', timer: null, counter: 0 };
     const ARCHIVE_TIMEOUT_MS = 20000;
+    // Live view: images are loaded one after another (about one per second) as long as the tile is visible,
+    // at most LIVE_MAX_MS. After LIVE_MAX_ERRORS failed images in a row it stops.
+    const live = { camera: null, running: false, url: '', time: null, errors: 0, timer: null, stopTimer: null };
+    const LIVE_INTERVAL_MS = 1000;
+    const LIVE_MAX_MS = 120000;
+    const LIVE_MAX_ERRORS = 3;
     // Actions: snapshot requested per camera (newest sequence number at the request), delete waiting for the
     // second tap, notices already shown per camera
     const actions = { busy: {}, confirm: null, confirmTimer: null, notices: {}, noticeTimer: null };
@@ -490,6 +499,73 @@
             time: entry.time,
             trigger: entry.trigger
         }));
+    }
+
+    function liveActive(camera) {
+        return live.running && camera !== null && live.camera === camera.id;
+    }
+
+    function startLive(camera) {
+        stopLive();
+        live.running = true;
+        live.camera = camera.id;
+        live.errors = 0;
+        live.stopTimer = setTimeout(() => {
+            stopLive();
+            render();
+        }, LIVE_MAX_MS);
+        loadLiveImage(camera);
+    }
+
+    function stopLive() {
+        live.running = false;
+        clearTimeout(live.timer);
+        clearTimeout(live.stopTimer);
+        if (live.url !== '') {
+            URL.revokeObjectURL(live.url);
+        }
+        live.url = '';
+        live.time = null;
+    }
+
+    // Loads the next image; the following one is requested when this one has arrived, so slow answers do not pile up
+    function loadLiveImage(camera) {
+        if (!liveActive(camera)) {
+            return;
+        }
+        const started = Date.now();
+        const query = new URLSearchParams({ token: camera.token, live: '1', t: String(started) });
+        fetch(camera.hook + '?' + query.toString(), { cache: 'no-store' }).then((response) => {
+            if (!response.ok) {
+                throw new Error('HTTP ' + response.status);
+            }
+            return response.blob();
+        }).then((blob) => {
+            if (!liveActive(camera)) {
+                return;
+            }
+            if (live.url !== '') {
+                URL.revokeObjectURL(live.url);
+            }
+            live.url = URL.createObjectURL(blob);
+            live.time = Date.now() / 1000;
+            live.errors = 0;
+            render();
+        }).catch(() => {
+            if (!liveActive(camera)) {
+                return;
+            }
+            live.errors++;
+            if (live.errors >= LIVE_MAX_ERRORS) {
+                stopLive();
+                showNotice(text('Live image not available'));
+                render();
+            }
+        }).finally(() => {
+            if (liveActive(camera)) {
+                live.timer = setTimeout(() => loadLiveImage(camera), Math.max(0, LIVE_INTERVAL_MS - (Date.now() - started)));
+            }
+        });
     }
 
     // Images of the current mode, newest first
@@ -603,6 +679,7 @@
             chip.className = 'chip' + (camera.id === view.camera ? ' active' : '');
             chip.textContent = camera.name;
             chip.addEventListener('click', () => {
+                stopLive();
                 view.camera = camera.id;
                 view.seq = null;
                 view.filter = '';
@@ -683,6 +760,7 @@
             thumb.title = triggerLabel(image.trigger) + ' – ' + formatTime(image.time, false);
             thumb.append(picture, label);
             thumb.addEventListener('click', () => {
+                stopLive();
                 selectImage(images, image);
                 render();
             });
@@ -736,6 +814,10 @@
         renderViewer();
         renderActions(camera, selected);
 
+        if (liveActive(camera)) {
+            renderLive();
+            return;
+        }
         if (!selected) {
             showMessage(emptyMessage(camera));
             return;
@@ -759,6 +841,25 @@
         document.getElementById('badges').classList.remove('hidden');
     }
 
+    // Live view in the large image: badge "Live" and the time the image arrived
+    function renderLive() {
+        if (live.url === '') {
+            showMessage(text('Loading live image …'));
+            return;
+        }
+        const picture = document.getElementById('image');
+        if (picture.getAttribute('src') !== live.url) {
+            delete picture.dataset.failed;
+            picture.src = live.url;
+        }
+        picture.classList.remove('hidden');
+        document.getElementById('message').classList.add('hidden');
+        document.getElementById('badgeTrigger').textContent = text('Live');
+        document.getElementById('badgeTime').textContent = formatTime(live.time, false);
+        document.getElementById('badgeKeep').classList.add('hidden');
+        document.getElementById('badges').classList.remove('hidden');
+    }
+
     function emptyMessage(camera) {
         if (view.mode !== 'archive') {
             return text(camera.indexDamaged ? 'The image index is damaged.' : 'No images yet');
@@ -776,6 +877,14 @@
     // Images of the archive can only be downloaded: the NAS already is the permanent storage.
     function renderActions(camera, selected) {
         document.getElementById('actions').classList.remove('hidden');
+        const liveButton = document.getElementById('actionLive');
+        liveButton.classList.toggle('hidden', camera.live !== true);
+        liveButton.classList.toggle('on', liveActive(camera));
+        liveButton.title = text(liveActive(camera) ? 'Stop live view' : 'Live view');
+        // The live image is no stored image: keep, download and delete do not apply
+        if (liveActive(camera)) {
+            selected = null;
+        }
         const snapshot = document.getElementById('actionSnapshot');
         const busy = Boolean(actions.busy[camera.id]);
         snapshot.classList.toggle('busy', busy);
@@ -867,7 +976,8 @@
     // Enlarged view of the selected image. Fullscreen is requested if the browser allows it for the tile;
     // otherwise the view covers the tile.
     function openViewer() {
-        if (!currentSelection().selected) {
+        const { camera, selected } = currentSelection();
+        if (!selected && !(liveActive(camera) && live.url !== '')) {
             return;
         }
         view.viewer = true;
@@ -897,6 +1007,21 @@
     function renderViewer() {
         const viewer = document.getElementById('viewer');
         const { camera, images, selected } = currentSelection();
+        if (view.viewer && liveActive(camera) && live.url !== '') {
+            // Live view in fullscreen: no browsing
+            const livePicture = document.getElementById('viewerImage');
+            if (livePicture.getAttribute('src') !== live.url) {
+                livePicture.src = live.url;
+            }
+            document.getElementById('viewerCamera').textContent = camera.name;
+            document.getElementById('viewerCamera').classList.toggle('hidden', tile.cameras.length < 2);
+            document.getElementById('viewerTrigger').textContent = text('Live');
+            document.getElementById('viewerTime').textContent = formatTime(live.time, false);
+            document.getElementById('viewerPrev').classList.add('hidden');
+            document.getElementById('viewerNext').classList.add('hidden');
+            viewer.classList.remove('hidden');
+            return;
+        }
         if (!view.viewer || !selected) {
             if (view.viewer) {
                 closeViewer();
@@ -920,7 +1045,10 @@
     }
 
     function stepViewer(step) {
-        const { images, selected } = currentSelection();
+        const { camera, images, selected } = currentSelection();
+        if (liveActive(camera)) {
+            return;
+        }
         const target = images[images.indexOf(selected) + step];
         if (target) {
             selectImage(images, target);
@@ -934,6 +1062,7 @@
             return;
         }
         resetConfirm();
+        stopLive();
         view.seq = null;
         view.filter = '';
         if (view.mode === 'archive') {
@@ -975,6 +1104,25 @@
     document.getElementById('viewerPrev').title = text('Newer image');
     document.getElementById('viewerNext').title = text('Older image');
     document.getElementById('viewerClose').title = text('Close');
+    document.getElementById('actionLive').addEventListener('click', () => {
+        const { camera } = currentSelection();
+        if (!camera) {
+            return;
+        }
+        if (liveActive(camera)) {
+            stopLive();
+        } else {
+            startLive(camera);
+        }
+        render();
+    });
+    // A hidden tile (other page, locked phone) ends the live view, so that no images are loaded unnoticed
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden && live.running) {
+            stopLive();
+            render();
+        }
+    });
     document.getElementById('actionSnapshot').addEventListener('click', takeSnapshot);
     document.getElementById('actionKeep').addEventListener('click', toggleKeep);
     document.getElementById('actionDownload').addEventListener('click', downloadImage);

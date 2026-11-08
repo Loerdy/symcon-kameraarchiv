@@ -19,7 +19,7 @@ Eine Kamera der UniFi-Protect-Konsole: nimmt per Auslöser oder manuell Snapshot
 * Ringpuffer der neuesten Bilder als Medienobjekte unterhalb der Instanz (Standard: 5 Bilder)
 * Optional Upload jedes Snapshots in voller Auflösung auf ein NAS (WebDAV) mit Aufbewahrungsdauer in Tagen
 * Benachrichtigung per E-Mail mit Bild oder per Push-Nachricht, je Auslöser und mit optionaler Bedingung (z. B. niemand zu Hause)
-* Kachel mit neuestem Bild, Archivleiste, Filter nach Auslöser und Vollbildansicht, bei NAS-Upload auch Blättern im NAS-Archiv nach Tagen
+* Kachel mit neuestem Bild, Live-Ansicht (ca. 1 Bild/s), Archivleiste, Filter nach Auslöser und Vollbildansicht, bei NAS-Upload auch Blättern im NAS-Archiv nach Tagen
 
 ### 2. Voraussetzungen
 
@@ -123,6 +123,7 @@ Die Instanz bringt eine eigene Kachel mit (HTML-SDK). Die Kachel der Konsole zei
 * In der Mitte das ausgewählte Bild mit Auslöser und Zeit. Ohne Auswahl wird immer das neueste Bild angezeigt, neue Snapshots erscheinen automatisch.
 * Unten die Archivleiste mit Vorschaubildern, neueste zuerst, und ein Filter nach Auslöser (sobald es mehr als einen Auslöser gibt).
 * Oben rechts auf dem Bild liegen die Aktionen:
+  * **Live** (Funk-Symbol): zeigt etwa jede Sekunde ein aktuelles Bild der Kamera, auch im Vollbild. Die Livebilder werden nicht gespeichert. Die Live-Ansicht endet nach 2 Minuten, wenn die Kachel nicht mehr sichtbar ist (andere Seite, gesperrtes Handy), beim Wechsel der Kamera oder beim Antippen eines Vorschaubilds. Schlagen drei Bilder nacheinander fehl, endet sie mit einem Hinweis. Mit „Snapshot aufnehmen“ lässt sich das aktuelle Bild jederzeit speichern.
   * **Snapshot aufnehmen** (Kamera-Symbol): Das neue Bild erscheint, sobald es gespeichert ist. Während der Aufnahme dreht sich das Symbol. Schlägt die Aufnahme fehl, erscheint ein Hinweis in der Kachel. Sperrzeiten und Mindestabstand der Auslöser gelten hier nicht.
   * **Behalten** (Lesezeichen): Ein markiertes Bild wird vom Ringpuffer nicht überschrieben. Erneutes Antippen hebt die Markierung auf.
   * **Herunterladen**: speichert das Bild als `<Name der Instanz>_<Datum>_<Uhrzeit>.jpg`. Ob die Datei gespeichert oder nur angezeigt wird, hängt von Browser bzw. App ab.
@@ -130,7 +131,7 @@ Die Instanz bringt eine eigene Kachel mit (HTML-SDK). Die Kachel der Konsole zei
 * **Archiv** (nur bei eingeschaltetem NAS-Upload): Die Taste „Archiv“ unten links wechselt zu den Bildern auf dem NAS. Eine Auswahl bietet die Tage mit Bildern an (neuester zuerst), die Leiste zeigt die Bilder des Tages mit Vorschaubildern, der Filter nach Auslöser gilt auch hier. Archivbilder lassen sich ansehen, im Vollbild durchblättern und herunterladen; Behalten und Löschen gibt es im Archiv nicht. „Neueste“ wechselt zurück, ebenso ein Snapshot aus der Kachel.
 * Antippen des großen Bildes öffnet die Vollbildansicht. Wischen oder die Pfeile wechseln zum neueren oder älteren Bild, Antippen des Bildes oder das Kreuz schließt die Ansicht. Am Rechner gehen auch die Pfeiltasten und Escape. Erlaubt der Browser bzw. die App für die Kachel echtes Vollbild, füllt die Ansicht den ganzen Bildschirm, sonst die ganze Kachel.
 
-Die Bilder liefert der WebHook der Instanz (`/hook/camera-archive-<InstanzID>`). WebHooks sind ohne Anmeldung erreichbar, auch über Symcon Connect. Der WebHook liefert deshalb nur Bilder, wenn die Anfrage den geheimen Schlüssel der Instanz enthält. Diesen Schlüssel erhalten nur die Kacheln der Instanz und der Konsole, die selbst durch das Passwort der Visualisierung geschützt sind. Die Aktionen der Kachel laufen nicht über den WebHook, sondern über die Visualisierung. Archivbilder holt der WebHook über die Konsole vom NAS; er liefert nur Dateien aus dem NAS-Ordner dieser Kamera, Datum und Dateiname werden geprüft.
+Die Bilder liefert der WebHook der Instanz (`/hook/camera-archive-<InstanzID>`). WebHooks sind ohne Anmeldung erreichbar, auch über Symcon Connect. Der WebHook liefert deshalb nur Bilder, wenn die Anfrage den geheimen Schlüssel der Instanz enthält. Diesen Schlüssel erhalten nur die Kacheln der Instanz und der Konsole, die selbst durch das Passwort der Visualisierung geschützt sind. Die Aktionen der Kachel laufen nicht über den WebHook, sondern über die Visualisierung. Livebilder holt der WebHook über die Konsole von Protect (ohne Full-HD, für mehrere Zuschauer höchstens ein Abruf pro Sekunde). Archivbilder holt der WebHook über die Konsole vom NAS; er liefert nur Dateien aus dem NAS-Ordner dieser Kamera, Datum und Dateiname werden geprüft.
 
 ### 7. PHP-Befehlsreferenz
 

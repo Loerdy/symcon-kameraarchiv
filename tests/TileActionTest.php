@@ -191,6 +191,35 @@ class TileActionTest extends TestCase
         $this->assertSame([true], array_column($this->images($module), 'keep'));
     }
 
+    public function testLiveImageIsSharedForOneSecond(): void
+    {
+        [, $module] = $this->createCamera();
+        $this->assertTrue($this->state($module)['live']);
+        $setBuffer = new ReflectionMethod($module, 'SetBuffer');
+
+        // A fresh image is delivered to further viewers without asking the console
+        $setBuffer->invoke($module, 'LiveImage', json_encode(['time' => microtime(true), 'image' => base64_encode('frame-1')]));
+        $this->assertSame('frame-1', $this->live($module));
+
+        // Older than one second: the console is asked (not reachable here) and nothing old is delivered
+        $setBuffer->invoke($module, 'LiveImage', json_encode(['time' => microtime(true) - 5, 'image' => base64_encode('frame-1')]));
+        $this->assertSame('Service Unavailable', $this->live($module));
+        $this->assertSame('', (new ReflectionMethod($module, 'GetBuffer'))->invoke($module, 'LiveImage'));
+        // Live images are never stored
+        $this->assertSame([], $this->images($module));
+    }
+
+    public function testLiveImageNeedsCompleteConfiguration(): void
+    {
+        $id = IPS_CreateInstance(self::CAMERA);
+        IPS_SetProperty($id, 'CameraID', '653fd7e100601403e40003f3');
+        IPS_ApplyChanges($id);
+        $module = IPS\InstanceManager::getInstanceInterface($id);
+
+        $this->assertFalse($this->state($module)['live']);
+        $this->assertSame('Not Found', $this->live($module));
+    }
+
     public function testDownloadNameAndHook(): void
     {
         [$id, $module] = $this->createCamera();
@@ -227,6 +256,15 @@ class TileActionTest extends TestCase
     {
         $result = (new ReflectionMethod($Module, 'StoreImage'))->invoke($Module, ['data' => $Data, 'width' => 16, 'height' => 8], 'manual', true);
         $this->assertTrue($result['ok']);
+    }
+
+    private function live(object $Module): string
+    {
+        $_GET = ['token' => (new ReflectionMethod($Module, 'ReadAttributeString'))->invoke($Module, 'HookToken'), 'live' => '1'];
+        ob_start();
+        (new ReflectionMethod($Module, 'ProcessHookData'))->invoke($Module);
+        $_GET = [];
+        return (string) ob_get_clean();
     }
 
     private function state(object $Module): array

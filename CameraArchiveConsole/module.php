@@ -147,6 +147,7 @@ class CameraArchiveConsole extends IPSModuleStrict
         $result = match ($command) {
             'GetCameras'   => $this->GetCamerasForChild(),
             'Snapshot'     => $this->SnapshotForChild(is_string($request['CameraID'] ?? null) ? $request['CameraID'] : '', is_array($request['NAS'] ?? null) ? $request['NAS'] : null),
+            'LiveSnapshot' => $this->LiveSnapshotForChild(is_string($request['CameraID'] ?? null) ? $request['CameraID'] : ''),
             'NASKeep'      => $this->QueueKeepCopy(is_string($request['Path'] ?? null) ? $request['Path'] : ''),
             'NASList'      => $this->ListArchive(is_string($request['Folder'] ?? null) ? $request['Folder'] : '', is_string($request['Date'] ?? null) ? $request['Date'] : ''),
             'NASGet'       => $this->GetArchiveImage(is_string($request['Folder'] ?? null) ? $request['Folder'] : '', is_string($request['Date'] ?? null) ? $request['Date'] : '', is_string($request['File'] ?? null) ? $request['File'] : '', ($request['Thumb'] ?? false) === true),
@@ -339,6 +340,19 @@ class CameraArchiveConsole extends IPSModuleStrict
             'memoryCache' => $this->ReadPropertyBoolean('MemoryCache'),
             'nasPath'     => $nasPath
         ];
+    }
+
+    /**
+     * Image for the live view of a tile: without highQuality (faster), not downscaled (no load for the SymBox),
+     * not uploaded and not stored. Result: ok, message, image (base64).
+     */
+    private function LiveSnapshotForChild(string $CameraID): array
+    {
+        $result = $this->FetchSnapshot($CameraID, false);
+        if (!$result['ok']) {
+            return $result;
+        }
+        return ['ok' => true, 'message' => '', 'image' => base64_encode($result['image'])];
     }
 
     /**
@@ -1162,7 +1176,7 @@ class CameraArchiveConsole extends IPSModuleStrict
     /**
      * Requests a snapshot. Result: ok, message; on success also image (JPEG bytes) and label.
      */
-    private function FetchSnapshot(string $CameraID): array
+    private function FetchSnapshot(string $CameraID, bool $HighQuality = true): array
     {
         $message = $this->CheckRequestPossible();
         if ($message !== '') {
@@ -1179,7 +1193,7 @@ class CameraArchiveConsole extends IPSModuleStrict
         $label = $camera['name'] !== '' ? $camera['name'] : $CameraID;
 
         // highQuality only for cameras that support Full HD snapshots, see docs/KONZEPT.md
-        $path = '/cameras/' . $CameraID . '/snapshot' . ($camera['fullHD'] ? '?highQuality=true' : '');
+        $path = '/cameras/' . $CameraID . '/snapshot' . ($HighQuality && $camera['fullHD'] ? '?highQuality=true' : '');
         $response = $this->Request($path);
         if ($response['errno'] !== 0) {
             return ['ok' => false, 'message' => $this->HandleTransportError($response)];

@@ -58,6 +58,13 @@ class CameraArchiveCamera extends IPSModuleStrict
     // Seconds after which a notice is no longer shown in a newly opened tile
     private const NOTICE_MAX_AGE = 30;
 
+    // Live view: one image is shared by all viewers for this time. It is kept in a buffer only if it is clearly
+    // below the buffer limit of the kernel (512 KiB per buffer, 1 MiB per instance), otherwise not shared.
+    private const LIVE_BUFFER = 'LiveImage';
+    private const LIVE_SHARE_SECONDS = 1.0;
+    private const LIVE_BUFFER_MAX = 300000;
+    private const LIVE_LOCK_TIMEOUT = 8000;
+
     // Notifications after a stored snapshot of a trigger
     private const NOTIFY_MAIL = 0;
     private const NOTIFY_PUSH = 1;
@@ -383,6 +390,10 @@ class CameraArchiveCamera extends IPSModuleStrict
         }
         if (($_GET['archive'] ?? null) === '1') {
             $this->DeliverArchiveImage();
+            return;
+        }
+        if (($_GET['live'] ?? null) === '1') {
+            $this->DeliverLiveImage();
             return;
         }
 
@@ -1762,6 +1773,61 @@ class CameraArchiveCamera extends IPSModuleStrict
     }
 
     /**
+     * WebHook: current image for the live view of a tile. Nothing is stored: no ring buffer, no NAS, no flash.
+     */
+    private function DeliverLiveImage(): void
+    {
+        if ($this->CheckConfiguration() !== IS_ACTIVE) {
+            $this->SendHookError(404, 'Not Found');
+            return;
+        }
+        $data = $this->GetLiveImage();
+        if ($data === null) {
+            $this->SendHookError(503, 'Service Unavailable');
+            return;
+        }
+        header('Content-Type: image/jpeg');
+        header('Cache-Control: no-store');
+        header('X-Content-Type-Options: nosniff');
+        echo $data;
+    }
+
+    /**
+     * Image of the camera that is at most LIVE_SHARE_SECONDS old. Deviation from the rule "no network under a
+     * lock" (by intention): this lock only serves the live view, so that several viewers wait for one request to
+     * the console instead of each sending their own. It guards no other data.
+     */
+    private function GetLiveImage(): ?string
+    {
+        if (!IPS_SemaphoreEnter('CAR_Live_' . $this->InstanceID, self::LIVE_LOCK_TIMEOUT)) {
+            $this->SendDebug('Live', 'Lock not available', 0);
+            return null;
+        }
+        try {
+            $shared = json_decode($this->GetBuffer(self::LIVE_BUFFER), true);
+            if (is_array($shared) && is_float($shared['time'] ?? null) && is_string($shared['image'] ?? null)
+                && microtime(true) - $shared['time'] < self::LIVE_SHARE_SECONDS) {
+                $data = base64_decode($shared['image'], true);
+                if (is_string($data) && $data !== '') {
+                    return $data;
+                }
+            }
+            $result = $this->SendToConsole(['Command' => 'LiveSnapshot', 'CameraID' => $this->ReadPropertyString('CameraID')]);
+            $image = $result['ok'] && is_string($result['image'] ?? null) ? $result['image'] : '';
+            $data = base64_decode($image, true);
+            if (!is_string($data) || $data === '') {
+                $this->SendDebug('Live', $result['ok'] ? 'Invalid image' : $result['message'], 0);
+                $this->SetBuffer(self::LIVE_BUFFER, '');
+                return null;
+            }
+            $this->SetBuffer(self::LIVE_BUFFER, strlen($image) <= self::LIVE_BUFFER_MAX ? (string) json_encode(['time' => microtime(true), 'image' => $image]) : '');
+            return $data;
+        } finally {
+            IPS_SemaphoreLeave('CAR_Live_' . $this->InstanceID);
+        }
+    }
+
+    /**
      * Content-Disposition for a download: name of the instance and time, e.g. "Haustür_2026-11-08_143005.jpg".
      * The plain filename is ASCII only (for old clients), filename* carries the UTF-8 name.
      */
@@ -1828,6 +1894,8 @@ class CameraArchiveCamera extends IPSModuleStrict
             'indexDamaged' => $index === null,
             // The tile offers the archive on the NAS
             'nas'          => $this->ReadPropertyBoolean('NASUpload'),
+            // The tile offers the live view
+            'live'         => $this->CheckConfiguration() === IS_ACTIVE,
             'notice'       => $this->GetTileNotice()
         ];
     }

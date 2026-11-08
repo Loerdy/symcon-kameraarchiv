@@ -6,6 +6,10 @@ Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 
 ## [Unreleased]
 
+### Hinzugefügt
+
+- **Live-Ansicht** in Kamera- und Übersichtskachel: Die Taste „Live“ zeigt etwa jede Sekunde ein aktuelles Bild, auch im Vollbild. Die Bilder werden nicht gespeichert. Die Ansicht endet nach 2 Minuten, bei unsichtbarer Kachel, beim Kamerawechsel oder nach wiederholten Fehlern.
+
 ### Geändert
 
 - Die Auswahl der SMTP-Instanz in den Benachrichtigungen bietet nur noch Instanzen „E-Mail senden (SMTP)“ an. Ist eine andere Instanz eingetragen, wird die Zeile rot markiert und nicht gesendet.
