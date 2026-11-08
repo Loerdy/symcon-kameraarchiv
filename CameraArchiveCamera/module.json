@@ -1,0 +1,21 @@
+{
+    "id": "{9640A1DD-2C7F-8953-58B8-30A09B2DEE85}",
+    "name": "Camera Archive Camera",
+    "type": 3,
+    "vendor": "",
+    "aliases": [
+        "Kamera-Archiv Kamera",
+        "Camera Archive",
+        "Kamera-Archiv",
+        "UniFi Protect Snapshot"
+    ],
+    "url": "https://github.com/Loerdy/symcon-kameraarchiv/blob/main/CameraArchiveCamera/README.md",
+    "parentRequirements": [
+        "{9EC0ACA4-E5E8-FBE2-061E-944A1C1A13BB}"
+    ],
+    "childRequirements": [],
+    "implemented": [
+        "{0EACC956-88F0-E151-304C-A22F37DDA6EA}"
+    ],
+    "prefix": "CAR"
+}

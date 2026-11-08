@@ -1,0 +1,119 @@
+{
+    "$schema": "https://www.symcon.de/assets/files/validation/formSchema.json",
+    "elements": [
+        {
+            "type": "Label",
+            "caption": "UniFi Protect",
+            "bold": true
+        },
+        {
+            "type": "ValidationTextBox",
+            "name": "Host",
+            "caption": "Protect console (host or IP)"
+        },
+        {
+            "type": "PasswordTextBox",
+            "name": "APIKey",
+            "caption": "API key"
+        },
+        {
+            "type": "Label",
+            "caption": "Create the API key in UniFi OS under Control Plane > Integrations. It has administrator rights: keep it secret.",
+            "italic": true
+        },
+        {
+            "type": "CheckBox",
+            "name": "SkipCertificateCheck",
+            "caption": "Do not verify certificate (for self-signed certificates)"
+        },
+        {
+            "type": "Label",
+            "caption": "Create one instance per camera with the Camera Archive Configurator. The tile of this instance shows all cameras."
+        },
+        {
+            "type": "Label",
+            "caption": "Storage",
+            "bold": true
+        },
+        {
+            "type": "CheckBox",
+            "name": "MemoryCache",
+            "caption": "Use in-memory cache"
+        },
+        {
+            "type": "Label",
+            "caption": "Do not disable this option on the SymBox or on SD/SSD storage. With the cache, images are kept in RAM and only written at shutdown (lost on a power failure). Without it, every image is written to the storage immediately."
+        },
+        {
+            "type": "CheckBox",
+            "name": "ResizeEnabled",
+            "caption": "Downscale images before storing"
+        },
+        {
+            "type": "NumberSpinner",
+            "name": "ResizeWidth",
+            "caption": "Maximum width",
+            "suffix": "px",
+            "minimum": 320,
+            "maximum": 3840
+        },
+        {
+            "type": "NumberSpinner",
+            "name": "ResizeQuality",
+            "caption": "JPEG quality",
+            "suffix": "%",
+            "minimum": 30,
+            "maximum": 95
+        },
+        {
+            "type": "Label",
+            "name": "GDMissing",
+            "caption": "PHP extension GD is not available: images are stored without resizing.",
+            "visible": false
+        }
+    ],
+    "actions": [
+        {
+            "type": "Button",
+            "caption": "Test connection",
+            "onClick": "CARC_UITestConnection($id);"
+        }
+    ],
+    "status": [
+        {
+            "code": 102,
+            "icon": "active",
+            "caption": "Ready"
+        },
+        {
+            "code": 201,
+            "icon": "error",
+            "caption": "Protect console host or API key is missing"
+        },
+        {
+            "code": 202,
+            "icon": "error",
+            "caption": "PHP extension cURL is not available"
+        },
+        {
+            "code": 203,
+            "icon": "error",
+            "caption": "Protect console not reachable"
+        },
+        {
+            "code": 204,
+            "icon": "error",
+            "caption": "API key invalid or without permission"
+        },
+        {
+            "code": 205,
+            "icon": "error",
+            "caption": "Certificate could not be verified (see option \"Do not verify certificate\")"
+        },
+        {
+            "code": 206,
+            "icon": "error",
+            "caption": "Unexpected response from the Protect console"
+        }
+    ]
+}

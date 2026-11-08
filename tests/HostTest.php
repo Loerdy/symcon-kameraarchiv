@@ -10,7 +10,7 @@ use PHPUnit\Framework\TestCase;
 // Port 1 is not listening, so every request fails quickly with "connection refused".
 class HostTest extends TestCase
 {
-    private const MODULE = '{2AF53696-16BD-B081-D6C1-DCA8F3893CE4}';
+    private const CONSOLE = '{1D21BC5C-4D67-637A-F881-25186E07F675}';
 
     protected function setUp(): void
     {
@@ -38,14 +38,14 @@ class HostTest extends TestCase
     #[PHPUnit\Framework\Attributes\DataProvider('hostProvider')]
     public function testRequestUrl(string $input, string $expectedHost): void
     {
-        $id = IPS_CreateInstance(self::MODULE);
+        $id = IPS_CreateInstance(self::CONSOLE);
         IPS_SetProperty($id, 'Host', $input);
         IPS_SetProperty($id, 'APIKey', 'test');
         IPS_ApplyChanges($id);
         IPS\DebugServer::enableDebug($id, 600);
 
         ob_start();
-        CAR_UITestConnection($id);
+        CARC_UITestConnection($id);
         ob_end_clean();
 
         $urls = [];

@@ -11,8 +11,18 @@ class CameraArchiveValidationTest extends TestCaseSymconValidation
         $this->validateLibrary(__DIR__ . '/..');
     }
 
-    public function testValidateCameraArchiveModule(): void
+    public function testValidateConsoleModule(): void
     {
-        $this->validateModule(__DIR__ . '/../CameraArchive');
+        $this->validateModule(__DIR__ . '/../CameraArchiveConsole');
+    }
+
+    public function testValidateConfiguratorModule(): void
+    {
+        $this->validateModule(__DIR__ . '/../CameraArchiveConfigurator');
+    }
+
+    public function testValidateCameraModule(): void
+    {
+        $this->validateModule(__DIR__ . '/../CameraArchiveCamera');
     }
 }

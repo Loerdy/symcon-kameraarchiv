@@ -8,16 +8,18 @@ Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 
 ### Hinzugefügt
 
-- **Modul Kamera-Archiv (CameraArchive)** mit Präfix `CAR`. Die Instanz lässt sich ohne Konfiguration anlegen und meldet fehlende Einstellungen über den Status.
-- **UniFi Protect Integration API:** Protect-Konsole (Hostname, IPv4 oder IPv6, optional mit Port), API-Key und Option „Zertifikat nicht prüfen“.
-- **Verbindung testen** meldet das Ergebnis und setzt den Status (nicht erreichbar, Zertifikatsfehler, API-Key ungültig, unerwartete Antwort).
-- **Kameras abrufen** schlägt die Kameras der Konsole in der Kameraliste vor; die Auswahl wird mit „Übernehmen“ gespeichert. Kameras ohne Snapshot über Protect (z. B. Drittanbieter) werden rot, nicht verbundene Kameras gelb markiert.
-- **`CAR_TakeSnapshot`** ruft einen Snapshot einer aktiven Kamera ab, in voller Auflösung, wenn die Kamera dies unterstützt, und speichert ihn.
-- **Speicherung im RAM:** Ringpuffer je Kamera aus gecachten Bild-Medienobjekten unterhalb der Instanz, Anzahl je Kamera in der Kameraliste einstellbar (Standard 30). Der Index liegt in einem ebenfalls gecachten Medienobjekt „Bildindex“. Bilder und Index werden erst beim Herunterfahren auf den Flash geschrieben. Als „Behalten“ markierte Bilder werden nicht überschrieben. Option „In-Memory-Cache verwenden“ (Standard: an); ohne Cache werden Bilder und Index sofort geschrieben, z. B. für Docker auf einem NAS. Fehlt die Datei des Index (z. B. nach einem Neustart), wird mit einer Warnung im Meldungsfenster ein neuer Index begonnen; ein beschädigter Index wird dagegen nie überschrieben.
+- **Drei Module** statt einer einzelnen Instanz für alle Kameras:
+  - **Kamera-Archiv Konsole** (Präfix `CARC`): Verbindung zur UniFi-Protect-Konsole (Hostname, IPv4 oder IPv6), API-Key, Option „Zertifikat nicht prüfen“, Verkleinerung und In-Memory-Cache für alle Kameras. „Verbindung testen“ meldet das Ergebnis und setzt den Status (nicht erreichbar, Zertifikatsfehler, API-Key ungültig, unerwartete Antwort).
+  - **Kamera-Archiv Konfigurator** (Präfix `CARK`): listet die Kameras der Konsole und legt je Kamera eine Instanz an. Drittanbieter-Kameras ohne Snapshot über Protect werden gekennzeichnet und nicht angelegt.
+  - **Kamera-Archiv Kamera** (Präfix `CAR`): eine Instanz je Kamera mit eigenen Auslösern, eigenen Bildern unterhalb der Instanz und eigener Kachel.
+- Alle Instanzen lassen sich ohne Konfiguration anlegen und melden fehlende Einstellungen über den Status.
+- **`CAR_TakeSnapshot`** ruft einen Snapshot der Kamera ab, in voller Auflösung, wenn die Kamera dies unterstützt, und speichert ihn.
+- **Speicherung im RAM:** Ringpuffer je Kamera aus gecachten Bild-Medienobjekten unterhalb der Kamera-Instanz, Anzahl einstellbar (Standard 5). Der Index liegt in einem ebenfalls gecachten Medienobjekt „Bildindex“. Bilder und Index werden erst beim Herunterfahren auf den Flash geschrieben. Als „Behalten“ markierte Bilder werden nicht überschrieben. Option „In-Memory-Cache verwenden“ in der Konsole (Standard: an); ohne Cache werden Bilder und Index sofort geschrieben, z. B. für Docker auf einem NAS. Fehlt die Datei des Index (z. B. nach einem Neustart), wird mit einer Warnung im Meldungsfenster ein neuer Index begonnen; ein beschädigter Index wird dagegen nie überschrieben.
 - **Verkleinern** vor dem Speichern per GD (Standard: an, 1280 px, Qualität 75). Ohne GD werden die Bilder unverkleinert gespeichert.
-- **Speicheranzeige** im Formular (Gesamt und je Kamera).
-- **`CAR_DeleteImages`** und Button „Bilder entfernter Kameras löschen“.
-- **Auslöser:** Liste von Variablen mit Bedingung (jede Änderung, jede Aktualisierung, wechselt auf Wert, wird mit Wert aktualisiert), einer oder mehreren Kameras, Verzögerung und Sperrzeit. Zusätzlich ein Mindestabstand je Kamera. Der Name des Auslösers wird am Bild gespeichert.
-- **Warteschlange** der fälligen Snapshots im Arbeitsspeicher, abgearbeitet von einem einzelnen Timer.
-- **Kachel** (HTML-SDK) mit Kameraauswahl, neuestem Bild mit Auslöser und Zeit, Archivleiste mit Vorschaubildern und Filter nach Auslöser. Neue Bilder erscheinen ohne Neuladen.
-- **WebHook** `/hook/camera-archive-<InstanzID>` liefert die Bilder an die Kachel, nur mit dem geheimen Schlüssel der Instanz.
+- **Speicheranzeige** in der Kamera-Instanz, **`CAR_DeleteImages`** und Button „Alle Bilder löschen“.
+- **Auslöser** je Kamera: Liste von Variablen mit Bedingung (jede Änderung, jede Aktualisierung, wechselt auf Wert, wird mit Wert aktualisiert), Verzögerung und Sperrzeit, zusätzlich ein Mindestabstand zwischen zwei Snapshots. Der Name des Auslösers wird am Bild gespeichert.
+- **Warteschlange** der fälligen Snapshots im Arbeitsspeicher, abgearbeitet von einem einzelnen Timer je Kamera.
+- **Kachel** (HTML-SDK) je Kamera mit neuestem Bild, Auslöser und Zeit, Archivleiste mit Vorschaubildern und Filter nach Auslöser. Neue Bilder erscheinen ohne Neuladen.
+- **Übersichtskachel** der Konsole mit allen Kameras. Die Kamera-Buttons tragen den Namen der Kamera-Instanz und lassen sich so frei benennen.
+- **Vollbildansicht:** Antippen des Bildes öffnet es groß, mit Wischen bzw. Pfeilen zum neueren oder älteren Bild. Echtes Vollbild, wenn die Visualisierung es für die Kachel erlaubt, sonst über die ganze Kachel.
+- **WebHook** `/hook/camera-archive-<InstanzID>` je Kamera liefert die Bilder an die Kacheln, nur mit dem geheimen Schlüssel der Instanz.

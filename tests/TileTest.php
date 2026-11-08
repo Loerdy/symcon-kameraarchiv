@@ -6,12 +6,11 @@ include_once __DIR__ . '/stubs/autoload.php';
 
 use PHPUnit\Framework\TestCase;
 
-// Tile state and image WebHook (phase 5a)
+// Tile state of a camera, image WebHook and overview tile of the console
 class TileTest extends TestCase
 {
-    private const MODULE = '{2AF53696-16BD-B081-D6C1-DCA8F3893CE4}';
-    private const CAMERA_A = '653fd7e100601403e40003f3';
-    private const CAMERA_B = '6900d73d01f57103e4808b14';
+    private const CONSOLE = '{1D21BC5C-4D67-637A-F881-25186E07F675}';
+    private const CAMERA = '{9640A1DD-2C7F-8953-58B8-30A09B2DEE85}';
 
     protected function setUp(): void
     {
@@ -29,7 +28,7 @@ class TileTest extends TestCase
 
     public function testTokenIsCreatedOnceAndKept(): void
     {
-        [$id, $module] = $this->createInstance([['id' => self::CAMERA_A, 'images' => 3]]);
+        [$id, $module] = $this->createCamera(3);
         $token = $this->token($module);
         $this->assertMatchesRegularExpression('/^[0-9a-f]{32}$/', $token);
 
@@ -39,17 +38,17 @@ class TileTest extends TestCase
 
     public function testHookDeliversStoredImage(): void
     {
-        [, $module] = $this->createInstance([['id' => self::CAMERA_A, 'images' => 3]]);
-        $this->store($module, self::CAMERA_A, 3, 'image-1');
+        [, $module] = $this->createCamera(3);
+        $this->store($module, 'image-1');
 
-        $this->assertSame('image-1', $this->hook($module, ['token' => $this->token($module), 'camera' => self::CAMERA_A, 'slot' => '1', 'seq' => '1']));
+        $this->assertSame('image-1', $this->hook($module, ['token' => $this->token($module), 'slot' => '1', 'seq' => '1']));
     }
 
     public function testHookRejectsMissingOrWrongToken(): void
     {
-        [, $module] = $this->createInstance([['id' => self::CAMERA_A, 'images' => 3]]);
-        $this->store($module, self::CAMERA_A, 3, 'image-1');
-        $request = ['camera' => self::CAMERA_A, 'slot' => '1', 'seq' => '1'];
+        [, $module] = $this->createCamera(3);
+        $this->store($module, 'image-1');
+        $request = ['slot' => '1', 'seq' => '1'];
 
         $this->assertSame('Forbidden', $this->hook($module, $request));
         $this->assertSame('Forbidden', $this->hook($module, $request + ['token' => str_repeat('0', 32)]));
@@ -57,120 +56,119 @@ class TileTest extends TestCase
         $this->assertSame('Forbidden', $this->hook($module, $request + ['token' => [$this->token($module)]]));
     }
 
+    public function testHookRejectsTokenOfAnotherCamera(): void
+    {
+        [, $first] = $this->createCamera(3);
+        [, $second] = $this->createCamera(3);
+        $this->store($first, 'image-1');
+
+        $this->assertSame('Forbidden', $this->hook($first, ['token' => $this->token($second), 'slot' => '1', 'seq' => '1']));
+    }
+
     public function testHookRejectsOverwrittenImage(): void
     {
-        [, $module] = $this->createInstance([['id' => self::CAMERA_A, 'images' => 1]]);
-        $this->store($module, self::CAMERA_A, 1, 'image-1');
-        $this->store($module, self::CAMERA_A, 1, 'image-2');
+        [, $module] = $this->createCamera(1);
+        $this->store($module, 'image-1');
+        $this->store($module, 'image-2');
         $token = $this->token($module);
 
         // Slot 1 now holds image 2: the URL of image 1 must not return image 2
-        $this->assertSame('Not Found', $this->hook($module, ['token' => $token, 'camera' => self::CAMERA_A, 'slot' => '1', 'seq' => '1']));
-        $this->assertSame('image-2', $this->hook($module, ['token' => $token, 'camera' => self::CAMERA_A, 'slot' => '1', 'seq' => '2']));
-        $this->assertSame('Not Found', $this->hook($module, ['token' => $token, 'camera' => self::CAMERA_B, 'slot' => '1', 'seq' => '2']));
+        $this->assertSame('Not Found', $this->hook($module, ['token' => $token, 'slot' => '1', 'seq' => '1']));
+        $this->assertSame('image-2', $this->hook($module, ['token' => $token, 'slot' => '1', 'seq' => '2']));
     }
 
     public function testHookRejectsInvalidParameters(): void
     {
-        [, $module] = $this->createInstance([['id' => self::CAMERA_A, 'images' => 3]]);
+        [, $module] = $this->createCamera(3);
         $token = $this->token($module);
 
         foreach ([
-            ['camera' => '../media', 'slot' => '1', 'seq' => '1'],
-            ['camera' => self::CAMERA_A, 'slot' => '0', 'seq' => '1'],
-            ['camera' => self::CAMERA_A, 'slot' => '201', 'seq' => '1'],
-            ['camera' => self::CAMERA_A, 'slot' => '1', 'seq' => 'x'],
-            ['camera' => self::CAMERA_A, 'slot' => '1'],
-            ['slot' => '1', 'seq' => '1']
+            ['slot' => '0', 'seq' => '1'],
+            ['slot' => '201', 'seq' => '1'],
+            ['slot' => '1', 'seq' => 'x'],
+            ['slot' => '1'],
+            ['seq' => '1']
         ] as $request) {
             $this->assertSame('Bad Request', $this->hook($module, $request + ['token' => $token]), json_encode($request));
         }
     }
 
-    public function testStateListsImagesNewestFirstAndSkipsInactiveCamerasWithoutImages(): void
+    public function testStateListsImagesNewestFirst(): void
     {
-        [, $module] = $this->createInstance([
-            ['id' => self::CAMERA_A, 'images' => 3],
-            ['id' => self::CAMERA_B, 'images' => 3, 'enabled' => false]
-        ]);
+        [$id, $module] = $this->createCamera(3);
+        IPS_SetName($id, 'Haustür');
         for ($i = 1; $i <= 4; $i++) {
-            $this->store($module, self::CAMERA_A, 3, 'image-' . $i);
+            $this->store($module, 'image-' . $i);
         }
 
         $state = $this->state($module);
-        $this->assertFalse($state['indexDamaged']);
+        $this->assertFalse($state['overview']);
         $this->assertCount(1, $state['cameras']);
-        $this->assertSame(self::CAMERA_A, $state['cameras'][0]['id']);
-        $this->assertSame('Haustür', $state['cameras'][0]['name']);
-        $this->assertSame([4, 3, 2], array_column($state['cameras'][0]['images'], 'seq'));
-        $this->assertSame(['slot', 'seq', 'time', 'trigger', 'keep', 'width', 'height'], array_keys($state['cameras'][0]['images'][0]));
-        $this->assertArrayNotHasKey('token', $state);
-    }
-
-    public function testInactiveCameraWithImagesStaysVisible(): void
-    {
-        [$id, $module] = $this->createInstance([['id' => self::CAMERA_A, 'images' => 3]]);
-        $this->store($module, self::CAMERA_A, 3, 'image-1');
-        $this->setCameras($id, [['id' => self::CAMERA_A, 'images' => 3, 'enabled' => false]]);
-        IPS_ApplyChanges($id);
-
-        $this->assertSame([1], array_column($this->state($module)['cameras'][0]['images'], 'seq'));
+        $camera = $state['cameras'][0];
+        $this->assertSame($id, $camera['id']);
+        $this->assertSame('Haustür', $camera['name']);
+        $this->assertFalse($camera['indexDamaged']);
+        $this->assertSame('/hook/camera-archive-' . $id, $camera['hook']);
+        $this->assertSame($this->token($module), $camera['token']);
+        $this->assertSame([4, 3, 2], array_column($camera['images'], 'seq'));
+        $this->assertSame(['slot', 'seq', 'time', 'trigger', 'keep', 'width', 'height'], array_keys($camera['images'][0]));
     }
 
     public function testDamagedIndexIsReportedAndKept(): void
     {
-        [$id, $module] = $this->createInstance([['id' => self::CAMERA_A, 'images' => 3]]);
-        $this->store($module, self::CAMERA_A, 3, 'image-1');
+        [$id, $module] = $this->createCamera(3);
+        $this->store($module, 'image-1');
         $indexID = IPS_GetObjectIDByIdent('ImageIndex', $id);
         IPS_SetMediaContent($indexID, base64_encode('{broken'));
 
-        $state = $this->state($module);
-        $this->assertTrue($state['indexDamaged']);
-        $this->assertSame([], $state['cameras'][0]['images']);
-        $this->assertSame('Not Found', $this->hook($module, ['token' => $this->token($module), 'camera' => self::CAMERA_A, 'slot' => '1', 'seq' => '1']));
+        $camera = $this->state($module)['cameras'][0];
+        $this->assertTrue($camera['indexDamaged']);
+        $this->assertSame([], $camera['images']);
+        $this->assertSame('Not Found', $this->hook($module, ['token' => $this->token($module), 'slot' => '1', 'seq' => '1']));
         $this->assertSame('{broken', base64_decode(IPS_GetMediaContent($indexID)));
     }
 
     public function testMissingIndexFileStartsNewIndex(): void
     {
         // After a restart the medium can exist without its file (content not readable)
-        [$id, $module] = $this->createInstance([['id' => self::CAMERA_A, 'images' => 3]]);
+        [$id, $module] = $this->createCamera(3);
         $indexID = IPS_CreateMedia(MEDIATYPE_DOCUMENT);
         IPS_SetMediaFile($indexID, 'media/missing_index.json', false);
         IPS_SetParent($indexID, $id);
         IPS_SetIdent($indexID, 'ImageIndex');
 
-        $state = $this->state($module);
-        $this->assertFalse($state['indexDamaged']);
-        $this->assertSame([], $state['cameras'][0]['images']);
+        $camera = $this->state($module)['cameras'][0];
+        $this->assertFalse($camera['indexDamaged']);
+        $this->assertSame([], $camera['images']);
         $this->assertStringContainsString('function handleMessage', $module->GetVisualizationTile());
 
         // Storing works again and uses the existing medium
-        $this->store($module, self::CAMERA_A, 3, 'image-1');
+        $this->store($module, 'image-1');
         $this->assertSame($indexID, IPS_GetObjectIDByIdent('ImageIndex', $id));
         $this->assertSame([1], array_column($this->state($module)['cameras'][0]['images'], 'seq'));
     }
 
     public function testHookReportsMissingImageFile(): void
     {
-        [$id, $module] = $this->createInstance([['id' => self::CAMERA_A, 'images' => 3]]);
-        $this->store($module, self::CAMERA_A, 3, 'image-1');
+        [$id, $module] = $this->createCamera(3);
+        $this->store($module, 'image-1');
         // Slot 2 is listed in the index, but its medium has no readable content
         $mediaID = IPS_CreateMedia(MEDIATYPE_IMAGE);
         IPS_SetMediaFile($mediaID, 'media/missing_slot.jpg', false);
         IPS_SetParent($mediaID, $id);
-        IPS_SetIdent($mediaID, 'IMG_' . self::CAMERA_A . '_002');
+        IPS_SetIdent($mediaID, 'IMG_002');
         $indexID = IPS_GetObjectIDByIdent('ImageIndex', $id);
         $index = json_decode(base64_decode(IPS_GetMediaContent($indexID)), true);
-        $index['cameras'][self::CAMERA_A][] = ['slot' => 2, 'seq' => 7, 'time' => 1, 'trigger' => 'manual', 'keep' => false, 'size' => 1, 'width' => 1, 'height' => 1];
+        $index['images'][] = ['slot' => 2, 'seq' => 7, 'time' => 1, 'trigger' => 'manual', 'keep' => false, 'size' => 1, 'width' => 1, 'height' => 1];
         IPS_SetMediaContent($indexID, base64_encode(json_encode($index)));
 
-        $this->assertSame('Not Found', $this->hook($module, ['token' => $this->token($module), 'camera' => self::CAMERA_A, 'slot' => '2', 'seq' => '7']));
+        $this->assertSame('Not Found', $this->hook($module, ['token' => $this->token($module), 'slot' => '2', 'seq' => '7']));
     }
 
-    public function testTileContainsStateAndEscapesCameraNames(): void
+    public function testTileContainsStateAndEscapesInstanceNames(): void
     {
-        [, $module] = $this->createInstance([['id' => self::CAMERA_A, 'images' => 3, 'name' => '</script><img src=x>']]);
+        [$id, $module] = $this->createCamera(3);
+        IPS_SetName($id, '</script><img src=x>');
         $html = $module->GetVisualizationTile();
 
         $this->assertStringContainsString('function handleMessage', $html);
@@ -178,39 +176,52 @@ class TileTest extends TestCase
         $this->assertSame(1, preg_match('/<script>handleMessage\((.*)\);<\/script>$/s', $html, $match));
         $state = json_decode($match[1], true);
         $this->assertSame('</script><img src=x>', $state['cameras'][0]['name']);
-        $this->assertSame('/hook/camera-archive-' . $this->instanceID($module), $state['hook']);
-        $this->assertSame($this->token($module), $state['token']);
+        $this->assertSame($this->token($module), $state['cameras'][0]['token']);
     }
 
-    private function createInstance(array $Cameras): array
+    public function testOverviewListsConnectedCamerasInTreeOrder(): void
     {
-        $id = IPS_CreateInstance(self::MODULE);
-        $this->setCameras($id, $Cameras);
+        $console = IPS_CreateInstance(self::CONSOLE);
+        IPS_ApplyChanges($console);
+        [$garden, $gardenModule] = $this->createCamera(3, $console);
+        [$door, $doorModule] = $this->createCamera(3, $console);
+        [$other] = $this->createCamera(3);
+        IPS_SetName($garden, 'Garten');
+        IPS_SetName($door, 'Haustür');
+        IPS_SetName($other, 'Andere Konsole');
+        IPS_SetPosition($garden, 2);
+        IPS_SetPosition($door, 1);
+        $this->store($doorModule, 'image-1');
+
+        $consoleModule = IPS\InstanceManager::getInstanceInterface($console);
+        $html = $consoleModule->GetVisualizationTile();
+        $this->assertSame(1, preg_match('/<script>handleMessage\((.*)\);<\/script>$/s', $html, $match));
+        $state = json_decode($match[1], true);
+
+        $this->assertTrue($state['overview']);
+        $this->assertSame(['Haustür', 'Garten'], array_column($state['cameras'], 'name'));
+        $this->assertSame([$door, $garden], array_column($state['cameras'], 'id'));
+        $this->assertSame($this->token($doorModule), $state['cameras'][0]['token']);
+        $this->assertSame($this->token($gardenModule), $state['cameras'][1]['token']);
+        $this->assertSame([1], array_column($state['cameras'][0]['images'], 'seq'));
+        $this->assertArrayNotHasKey('position', $state['cameras'][0]);
+    }
+
+    private function createCamera(int $Images, int $ConsoleID = 0): array
+    {
+        $id = IPS_CreateInstance(self::CAMERA);
+        IPS_SetProperty($id, 'CameraID', '653fd7e100601403e40003f3');
+        IPS_SetProperty($id, 'Images', $Images);
+        if ($ConsoleID > 0) {
+            IPS_ConnectInstance($id, $ConsoleID);
+        }
         IPS_ApplyChanges($id);
         return [$id, IPS\InstanceManager::getInstanceInterface($id)];
     }
 
-    private function setCameras(int $ID, array $Cameras): void
+    private function store(object $Module, string $Data): void
     {
-        $rows = [];
-        foreach ($Cameras as $camera) {
-            $rows[] = [
-                'Enabled'  => $camera['enabled'] ?? true,
-                'Images'   => $camera['images'],
-                'Name'     => $camera['name'] ?? 'Haustür',
-                'Type'     => 'UVC G3',
-                'State'    => 'CONNECTED',
-                'FullHD'   => true,
-                'CameraID' => $camera['id']
-            ];
-        }
-        IPS_SetProperty($ID, 'Cameras', json_encode($rows));
-    }
-
-    private function store(object $Module, string $CameraID, int $Images, string $Data): void
-    {
-        $camera = ['Enabled' => true, 'Images' => $Images, 'Name' => 'Haustür', 'Type' => 'UVC G3', 'State' => 'CONNECTED', 'FullHD' => true, 'CameraID' => $CameraID];
-        $result = (new ReflectionMethod($Module, 'StoreImage'))->invoke($Module, $camera, ['data' => $Data, 'width' => 16, 'height' => 8], 'manual');
+        $result = (new ReflectionMethod($Module, 'StoreImage'))->invoke($Module, ['data' => $Data, 'width' => 16, 'height' => 8], 'manual', true);
         $this->assertTrue($result['ok']);
     }
 
@@ -230,10 +241,5 @@ class TileTest extends TestCase
     private function token(object $Module): string
     {
         return (new ReflectionMethod($Module, 'ReadAttributeString'))->invoke($Module, 'HookToken');
-    }
-
-    private function instanceID(object $Module): int
-    {
-        return (new ReflectionProperty($Module, 'InstanceID'))->getValue($Module);
     }
 }

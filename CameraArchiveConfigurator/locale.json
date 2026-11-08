@@ -1,0 +1,18 @@
+{
+    "translations": {
+        "de": {
+            "Camera Archive Configurator": "Kamera-Archiv Konfigurator",
+            "Cameras": "Kameras",
+            "Name": "Name",
+            "Type": "Typ",
+            "State": "Zustand",
+            "Snapshot": "Snapshot",
+            "Camera ID": "Kamera-ID",
+            "OK": "OK",
+            "No snapshot via Protect": "Kein Snapshot über Protect",
+            "Not found on the console": "Nicht auf der Konsole gefunden",
+            "Not connected to a Camera Archive Console.": "Nicht mit einer Kamera-Archiv Konsole verbunden.",
+            "The cameras could not be fetched: %s": "Die Kameras konnten nicht abgerufen werden: %s"
+        }
+    }
+}

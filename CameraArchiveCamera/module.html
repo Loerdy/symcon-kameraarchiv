@@ -1,4 +1,5 @@
-<!-- Fragment like the official HTML-SDK examples: the body margins of the visualization (space for the tile title)
+<!-- Tile of a camera instance, also used by the console for the overview of all cameras.
+     Fragment like the official HTML-SDK examples: the body margins of the visualization (space for the tile title)
      as well as text color and font of the design are kept. Surfaces are derived from the inherited text color. -->
 <style>
     html {
@@ -72,6 +73,7 @@
         width: 100%;
         height: 100%;
         object-fit: contain;
+        cursor: zoom-in;
     }
 
     #message {
@@ -80,13 +82,14 @@
         text-align: center;
     }
 
-    #badges {
+    .badges {
         position: absolute;
         left: 8px;
         bottom: 8px;
         display: flex;
         flex-wrap: wrap;
         gap: 6px;
+        pointer-events: none;
     }
 
     /* Badges lie on the image, therefore fixed colors with enough contrast in every design */
@@ -167,6 +170,60 @@
         overflow: hidden;
     }
 
+    /* Enlarged view: covers the tile, or the whole screen if the browser allows fullscreen for the tile.
+       Always dark, independent of the design, like common image viewers. */
+    #viewer {
+        position: fixed;
+        inset: 0;
+        z-index: 10;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #000000;
+        color: #ffffff;
+        touch-action: pan-y pinch-zoom;
+    }
+
+    #viewerImage {
+        display: block;
+        width: 100%;
+        height: 100%;
+        object-fit: contain;
+        cursor: zoom-out;
+    }
+
+    .viewer-button {
+        position: absolute;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 44px;
+        height: 44px;
+        padding: 0;
+        border: none;
+        border-radius: 22px;
+        background: rgba(0, 0, 0, 0.55);
+        color: #ffffff;
+        font: 28px/1 sans-serif;
+        cursor: pointer;
+    }
+
+    #viewerClose {
+        top: 8px;
+        right: 8px;
+        font-size: 22px;
+    }
+
+    #viewerPrev {
+        left: 8px;
+        top: calc(50% - 22px);
+    }
+
+    #viewerNext {
+        right: 8px;
+        top: calc(50% - 22px);
+    }
+
     .hidden {
         display: none !important;
     }
@@ -182,16 +239,27 @@
     <div id="main">
         <img id="image" class="hidden" alt="">
         <div id="message"></div>
-        <div id="badges" class="hidden">
+        <div id="badges" class="badges hidden">
             <span id="badgeTrigger" class="badge"></span>
             <span id="badgeTime" class="badge"></span>
-            <span id="badgeKeep" class="badge">Kept</span>
+            <span id="badgeKeep" class="badge"></span>
         </div>
     </div>
     <div id="bar">
         <select id="filter"></select>
         <div id="strip" class="scroller"></div>
     </div>
+</div>
+<div id="viewer" class="hidden">
+    <img id="viewerImage" alt="">
+    <div id="viewerBadges" class="badges">
+        <span id="viewerCamera" class="badge"></span>
+        <span id="viewerTrigger" class="badge"></span>
+        <span id="viewerTime" class="badge"></span>
+    </div>
+    <button id="viewerPrev" class="viewer-button" type="button">&#8249;</button>
+    <button id="viewerNext" class="viewer-button" type="button">&#8250;</button>
+    <button id="viewerClose" class="viewer-button" type="button">&#10005;</button>
 </div>
 <script>
     // The body keeps the margins of the visualization; its height is reduced by them so that nothing is cut off
@@ -201,10 +269,11 @@
         document.documentElement.style.setProperty('--body-margins', (isNaN(margins) ? 0 : margins) + 'px');
     })();
 
-    // Messages of the module: the initial state contains hook and token, later updates only the cameras
-    const tile = { hook: '', token: '', cameras: [], indexDamaged: false };
-    // Selected camera, selected image (null: always show the newest) and trigger filter ('' = all)
-    const view = { camera: null, seq: null, filter: '' };
+    // State of the module: cameras with name, image WebHook (hook, token) and images, newest first.
+    // "overview" is true for the tile of the console that shows all cameras.
+    const tile = { cameras: [], overview: false };
+    // Selected camera, selected image (null: always show the newest), trigger filter ('' = all), enlarged view
+    const view = { camera: null, seq: null, filter: '', viewer: false, fullscreen: false };
 
     function text(original) {
         return typeof translate === 'function' ? translate(original) : original;
@@ -222,20 +291,14 @@
         if (data === null || typeof data !== 'object') {
             return;
         }
-        if (typeof data.hook === 'string') {
-            tile.hook = data.hook;
-        }
-        if (typeof data.token === 'string') {
-            tile.token = data.token;
-        }
         tile.cameras = Array.isArray(data.cameras) ? data.cameras : [];
-        tile.indexDamaged = data.indexDamaged === true;
+        tile.overview = data.overview === true;
         render();
     }
 
     function imageUrl(camera, image) {
-        const query = new URLSearchParams({ token: tile.token, camera: camera.id, slot: image.slot, seq: image.seq });
-        return tile.hook + '?' + query.toString();
+        const query = new URLSearchParams({ token: camera.token, slot: image.slot, seq: image.seq });
+        return camera.hook + '?' + query.toString();
     }
 
     function triggerLabel(trigger) {
@@ -326,6 +389,11 @@
         select.classList.toggle('hidden', triggers.length < 2);
     }
 
+    // Selects an image of the filtered list; the newest image means "always show the newest"
+    function selectImage(images, image) {
+        view.seq = image === images[0] ? null : image.seq;
+    }
+
     function renderStrip(camera, images, selected) {
         const strip = document.getElementById('strip');
         strip.replaceChildren();
@@ -342,13 +410,27 @@
             thumb.title = triggerLabel(image.trigger) + ' – ' + formatTime(image.time, false);
             thumb.append(picture, label);
             thumb.addEventListener('click', () => {
-                // Clicking the newest image returns to "always show the newest"
-                view.seq = image === images[0] ? null : image.seq;
+                selectImage(images, image);
                 render();
             });
             strip.appendChild(thumb);
         }
         scrollToActive(strip);
+    }
+
+    // Current camera, its filtered images and the selected image
+    function currentSelection() {
+        const camera = tile.cameras.find((entry) => entry.id === view.camera);
+        if (!camera) {
+            return { camera: null, images: [], selected: null };
+        }
+        const images = camera.images.filter((image) => view.filter === '' || image.trigger === view.filter);
+        let selected = images.find((image) => image.seq === view.seq);
+        if (!selected) {
+            view.seq = null;
+            selected = images[0] || null;
+        }
+        return { camera, images, selected };
     }
 
     function render() {
@@ -362,23 +444,20 @@
         const camera = tile.cameras.find((entry) => entry.id === view.camera);
         if (!camera) {
             bar.classList.add('hidden');
-            showMessage(text('No active camera. Activate a camera in the instance configuration.'));
+            closeViewer();
+            showMessage(text(tile.overview ? 'No cameras yet. Create the camera instances with the configurator.' : 'No camera'));
             return;
         }
 
         renderFilter(camera);
-        const images = camera.images.filter((image) => view.filter === '' || image.trigger === view.filter);
-        let selected = images.find((image) => image.seq === view.seq);
-        if (!selected) {
-            view.seq = null;
-            selected = images[0];
-        }
+        const { images, selected } = currentSelection();
 
         bar.classList.toggle('hidden', camera.images.length === 0);
         renderStrip(camera, images, selected);
+        renderViewer();
 
         if (!selected) {
-            showMessage(text(tile.indexDamaged ? 'The image index is damaged.' : 'No images yet'));
+            showMessage(text(camera.indexDamaged ? 'The image index is damaged.' : 'No images yet'));
             return;
         }
 
@@ -395,8 +474,73 @@
         document.getElementById('message').classList.add('hidden');
         document.getElementById('badgeTrigger').textContent = triggerLabel(selected.trigger);
         document.getElementById('badgeTime').textContent = formatTime(selected.time, false);
+        document.getElementById('badgeKeep').textContent = text('Kept');
         document.getElementById('badgeKeep').classList.toggle('hidden', !selected.keep);
         document.getElementById('badges').classList.remove('hidden');
+    }
+
+    // Enlarged view of the selected image. Fullscreen is requested if the browser allows it for the tile;
+    // otherwise the view covers the tile.
+    function openViewer() {
+        if (!currentSelection().selected) {
+            return;
+        }
+        view.viewer = true;
+        renderViewer();
+        const viewer = document.getElementById('viewer');
+        if (document.fullscreenEnabled && typeof viewer.requestFullscreen === 'function') {
+            viewer.requestFullscreen().then(() => {
+                view.fullscreen = true;
+            }).catch(() => {
+                view.fullscreen = false;
+            });
+        }
+    }
+
+    function closeViewer() {
+        if (!view.viewer) {
+            return;
+        }
+        view.viewer = false;
+        document.getElementById('viewer').classList.add('hidden');
+        if (view.fullscreen && document.fullscreenElement) {
+            view.fullscreen = false;
+            document.exitFullscreen().catch(() => {});
+        }
+    }
+
+    function renderViewer() {
+        const viewer = document.getElementById('viewer');
+        const { camera, images, selected } = currentSelection();
+        if (!view.viewer || !selected) {
+            if (view.viewer) {
+                closeViewer();
+            }
+            return;
+        }
+        const position = images.indexOf(selected);
+        const picture = document.getElementById('viewerImage');
+        const url = imageUrl(camera, selected);
+        if (picture.getAttribute('src') !== url) {
+            picture.src = url;
+        }
+        document.getElementById('viewerCamera').textContent = camera.name;
+        document.getElementById('viewerCamera').classList.toggle('hidden', tile.cameras.length < 2);
+        document.getElementById('viewerTrigger').textContent = triggerLabel(selected.trigger);
+        document.getElementById('viewerTime').textContent = formatTime(selected.time, false);
+        // The strip runs from new to old: "previous" is the newer, "next" the older image
+        document.getElementById('viewerPrev').classList.toggle('hidden', position <= 0);
+        document.getElementById('viewerNext').classList.toggle('hidden', position >= images.length - 1);
+        viewer.classList.remove('hidden');
+    }
+
+    function stepViewer(step) {
+        const { images, selected } = currentSelection();
+        const target = images[images.indexOf(selected) + step];
+        if (target) {
+            selectImage(images, target);
+            render();
+        }
     }
 
     document.getElementById('filter').addEventListener('change', (event) => {
@@ -408,5 +552,62 @@
     document.getElementById('image').addEventListener('error', (event) => {
         event.target.dataset.failed = 'true';
         showMessage(text('Image not available'));
+    });
+
+    document.getElementById('image').addEventListener('click', openViewer);
+    document.getElementById('viewerClose').addEventListener('click', closeViewer);
+    document.getElementById('viewerPrev').addEventListener('click', () => stepViewer(-1));
+    document.getElementById('viewerNext').addEventListener('click', () => stepViewer(1));
+    document.getElementById('viewerPrev').title = text('Newer image');
+    document.getElementById('viewerNext').title = text('Older image');
+    document.getElementById('viewerClose').title = text('Close');
+
+    // Swiping changes the image, a tap on the image closes the view
+    (function () {
+        const viewerImage = document.getElementById('viewerImage');
+        let startX = null;
+        let swiped = false;
+        viewerImage.addEventListener('touchstart', (event) => {
+            startX = event.touches.length === 1 ? event.touches[0].clientX : null;
+            swiped = false;
+        }, { passive: true });
+        viewerImage.addEventListener('touchend', (event) => {
+            if (startX === null || event.changedTouches.length !== 1) {
+                return;
+            }
+            const distance = event.changedTouches[0].clientX - startX;
+            startX = null;
+            if (Math.abs(distance) > 40) {
+                swiped = true;
+                stepViewer(distance < 0 ? 1 : -1);
+            }
+        });
+        viewerImage.addEventListener('click', () => {
+            if (!swiped) {
+                closeViewer();
+            }
+            swiped = false;
+        });
+    })();
+
+    document.addEventListener('keydown', (event) => {
+        if (!view.viewer) {
+            return;
+        }
+        if (event.key === 'Escape') {
+            closeViewer();
+        } else if (event.key === 'ArrowLeft') {
+            stepViewer(-1);
+        } else if (event.key === 'ArrowRight') {
+            stepViewer(1);
+        }
+    });
+
+    // Leaving fullscreen with the system (e.g. Escape or back gesture) also closes the view
+    document.addEventListener('fullscreenchange', () => {
+        if (!document.fullscreenElement && view.fullscreen) {
+            view.fullscreen = false;
+            closeViewer();
+        }
     });
 </script>

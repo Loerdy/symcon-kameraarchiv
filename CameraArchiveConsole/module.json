@@ -1,0 +1,19 @@
+{
+    "id": "{1D21BC5C-4D67-637A-F881-25186E07F675}",
+    "name": "Camera Archive Console",
+    "type": 1,
+    "vendor": "",
+    "aliases": [
+        "Kamera-Archiv Konsole",
+        "UniFi Protect Console"
+    ],
+    "url": "https://github.com/Loerdy/symcon-kameraarchiv/blob/main/CameraArchiveConsole/README.md",
+    "parentRequirements": [],
+    "childRequirements": [
+        "{0EACC956-88F0-E151-304C-A22F37DDA6EA}"
+    ],
+    "implemented": [
+        "{9EC0ACA4-E5E8-FBE2-061E-944A1C1A13BB}"
+    ],
+    "prefix": "CARC"
+}

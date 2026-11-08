@@ -1,0 +1,19 @@
+{
+    "id": "{C1099428-0FB4-37B2-DC0C-63201BB4A5CF}",
+    "name": "Camera Archive Configurator",
+    "type": 4,
+    "vendor": "",
+    "aliases": [
+        "Kamera-Archiv Konfigurator",
+        "UniFi Protect Configurator"
+    ],
+    "url": "https://github.com/Loerdy/symcon-kameraarchiv/blob/main/CameraArchiveConfigurator/README.md",
+    "parentRequirements": [
+        "{9EC0ACA4-E5E8-FBE2-061E-944A1C1A13BB}"
+    ],
+    "childRequirements": [],
+    "implemented": [
+        "{0EACC956-88F0-E151-304C-A22F37DDA6EA}"
+    ],
+    "prefix": "CARK"
+}

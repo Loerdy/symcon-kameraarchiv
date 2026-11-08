@@ -8,7 +8,11 @@ Snapshots von Kameras per Auslöser (Klingel, Türkontakt, Bewegungsmelder …) 
 
 | Modul | Beschreibung |
 | ----- | ------------ |
-| [Kamera-Archiv](CameraArchive/README.md) | Snapshots über die UniFi Protect Integration API abrufen und archivieren |
+| [Kamera-Archiv Konsole](CameraArchiveConsole/README.md) | Verbindung zur UniFi-Protect-Konsole, Bildeinstellungen, Übersichtskachel aller Kameras |
+| [Kamera-Archiv Konfigurator](CameraArchiveConfigurator/README.md) | Listet die Kameras der Konsole und legt je Kamera eine Instanz an |
+| [Kamera-Archiv Kamera](CameraArchiveCamera/README.md) | Eine Kamera: Auslöser, gespeicherte Snapshots, eigene Kachel |
+
+Einrichtung: einen „Kamera-Archiv Konfigurator“ anlegen (die Konsole wird dabei mit angelegt), in der Konsole Host und API-Key eintragen, dann im Konfigurator die gewünschten Kameras anlegen.
 
 ## Branches
 

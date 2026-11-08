@@ -1,0 +1,52 @@
+{
+    "$schema": "https://www.symcon.de/assets/files/validation/formSchema.json",
+    "elements": [
+        {
+            "type": "Label",
+            "name": "Message",
+            "caption": "",
+            "visible": false
+        },
+        {
+            "type": "Configurator",
+            "name": "Cameras",
+            "caption": "Cameras",
+            "rowCount": 12,
+            "delete": true,
+            "discoveryInterval": 300,
+            "sort": {
+                "column": "name",
+                "direction": "ascending"
+            },
+            "columns": [
+                {
+                    "caption": "Name",
+                    "name": "name",
+                    "width": "auto"
+                },
+                {
+                    "caption": "Type",
+                    "name": "cameraType",
+                    "width": "180px"
+                },
+                {
+                    "caption": "State",
+                    "name": "state",
+                    "width": "160px"
+                },
+                {
+                    "caption": "Snapshot",
+                    "name": "snapshot",
+                    "width": "200px"
+                },
+                {
+                    "caption": "Camera ID",
+                    "name": "cameraID",
+                    "width": "220px"
+                }
+            ],
+            "values": []
+        }
+    ],
+    "actions": []
+}

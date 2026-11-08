@@ -6,13 +6,12 @@ include_once __DIR__ . '/stubs/autoload.php';
 
 use PHPUnit\Framework\TestCase;
 
-// Triggers, lockouts and the snapshot queue (phase 4).
+// Triggers, lockouts and the snapshot queue of a camera instance.
 // The stubs do not dispatch messages, so the tests call MessageSink like the kernel would.
 class TriggerTest extends TestCase
 {
-    private const MODULE = '{2AF53696-16BD-B081-D6C1-DCA8F3893CE4}';
-    private const CAMERA_A = '653fd7e100601403e40003f3';
-    private const CAMERA_B = '6900d73d01f57103e4808b14';
+    private const CONSOLE = '{1D21BC5C-4D67-637A-F881-25186E07F675}';
+    private const CAMERA = '{9640A1DD-2C7F-8953-58B8-30A09B2DEE85}';
 
     private int $id;
     private object $module;
@@ -23,14 +22,15 @@ class TriggerTest extends TestCase
         IPS\Kernel::reset();
         IPS\ModuleLoader::loadLibrary(__DIR__ . '/../library.json');
 
-        $this->id = IPS_CreateInstance(self::MODULE);
         // Port 1 is not listening: snapshots fail quickly, but the configuration counts as complete
-        IPS_SetProperty($this->id, 'Host', '127.0.0.1:1');
-        IPS_SetProperty($this->id, 'APIKey', 'test');
-        IPS_SetProperty($this->id, 'Cameras', json_encode([
-            ['Enabled' => true, 'Images' => 30, 'Name' => 'Haustür', 'Type' => 'UVC G3', 'State' => 'CONNECTED', 'FullHD' => true, 'CameraID' => self::CAMERA_A],
-            ['Enabled' => false, 'Images' => 30, 'Name' => 'Garten', 'Type' => 'UVC G3', 'State' => 'CONNECTED', 'FullHD' => true, 'CameraID' => self::CAMERA_B]
-        ]));
+        $console = IPS_CreateInstance(self::CONSOLE);
+        IPS_SetProperty($console, 'Host', '127.0.0.1:1');
+        IPS_SetProperty($console, 'APIKey', 'test');
+        IPS_ApplyChanges($console);
+
+        $this->id = IPS_CreateInstance(self::CAMERA);
+        IPS_SetProperty($this->id, 'CameraID', '653fd7e100601403e40003f3');
+        IPS_ConnectInstance($this->id, $console);
         IPS_ApplyChanges($this->id);
         $this->module = IPS\InstanceManager::getInstanceInterface($this->id);
     }
@@ -129,16 +129,26 @@ class TriggerTest extends TestCase
         $this->assertCount(2, $this->queue());
     }
 
-    public function testInactiveTriggerAndInactiveCameraAreSkipped(): void
+    public function testInactiveTriggerIsSkipped(): void
     {
         $variable = $this->variable(VARIABLETYPE_BOOLEAN, false);
-        $this->setTriggers([
-            $this->trigger($variable, 1, ['Active' => false]),
-            $this->trigger($variable, 1, ['Camera_' . self::CAMERA_A => false, 'Camera_' . self::CAMERA_B => true])
-        ], 0);
+        $this->setTriggers([$this->trigger($variable, 1, ['Active' => false])], 0);
 
         $this->update($variable, true);
         $this->assertCount(0, $this->queue());
+    }
+
+    public function testCameraWithoutConsoleQueuesNothing(): void
+    {
+        $variable = $this->variable(VARIABLETYPE_BOOLEAN, false);
+        $this->setTriggers([$this->trigger($variable, 1)], 0);
+        IPS_DisconnectInstance($this->id);
+        IPS_ApplyChanges($this->id);
+        $this->assertSame(202, IPS_GetInstance($this->id)['InstanceStatus']);
+
+        $this->update($variable, true);
+        $this->assertCount(0, $this->queue());
+        $this->assertFalse(CAR_TakeSnapshot($this->id));
     }
 
     public function testDefaultNameIsVariableName(): void
@@ -198,11 +208,9 @@ class TriggerTest extends TestCase
     public function testTriggerDialogAndRows(): void
     {
         $variable = $this->variable(VARIABLETYPE_BOOLEAN, false);
-        $this->setTriggers([$this->trigger($variable, 0)], 0);
+        $this->setTriggers([$this->trigger($variable, 0, ['Extra' => true])], 0);
 
         $dialog = array_column(json_decode(CAR_UITriggerForm($this->id, $variable, 0), true), null, 'name');
-        $this->assertArrayHasKey('Camera_' . self::CAMERA_A, $dialog);
-        $this->assertArrayHasKey('Camera_' . self::CAMERA_B, $dialog);
         $this->assertFalse($dialog['Value']['visible']);
         $dialog = array_column(json_decode(CAR_UITriggerForm($this->id, $variable, 2), true), null, 'name');
         $this->assertTrue($dialog['Value']['visible']);
@@ -219,9 +227,10 @@ class TriggerTest extends TestCase
 
         $form = json_decode(IPS_GetConfigurationForm($this->id), true);
         $elements = array_column($form['elements'], null, 'name');
-        $this->assertSame('Haustür', $elements['Triggers']['values'][0]['CameraNames']);
-        // All saved values of the row are kept for saving
-        $this->assertTrue($elements['Triggers']['values'][0]['Camera_' . self::CAMERA_A]);
+        // All saved values of the row are kept for saving, including values of former versions
+        $this->assertSame('Test', $elements['Triggers']['values'][0]['Name']);
+        $this->assertTrue($elements['Triggers']['values'][0]['Extra']);
+        $this->assertSame('', $elements['Triggers']['values'][0]['rowColor']);
     }
 
     private function variable(int $Type, mixed $Value): int
@@ -240,8 +249,7 @@ class TriggerTest extends TestCase
             'Condition'                => $Condition,
             'Value'                    => '',
             'Delay'                    => 0,
-            'Lockout'                  => 30,
-            'Camera_' . self::CAMERA_A => true
+            'Lockout'                  => 30
         ];
     }
 
@@ -267,7 +275,7 @@ class TriggerTest extends TestCase
     {
         $state = (new ReflectionMethod($this->module, 'LoadTriggerState'))->invoke($this->module);
         $state['queue'] = [];
-        $state['cameraLast'] = [];
+        $state['cameraLast'] = null;
         (new ReflectionMethod($this->module, 'SaveTriggerState'))->invoke($this->module, $state);
     }
 
