@@ -53,8 +53,21 @@ switch ($_SERVER['REQUEST_METHOD']) {
             break;
         }
         $existed = is_file($file);
-        file_put_contents($file, file_get_contents('php://input'));
+        $data = file_get_contents('php://input');
+        // Simulates a NAS that loses the beginning of the upload but still confirms it
+        if (str_contains($file, 'Truncate')) {
+            $data = substr($data, 10);
+        }
+        file_put_contents($file, $data);
         http_response_code($existed ? 204 : 201);
+        break;
+    case 'HEAD':
+        if (!is_file($file)) {
+            http_response_code(404);
+            break;
+        }
+        header('Content-Length: ' . filesize($file));
+        http_response_code(200);
         break;
     case 'COPY':
         $destination = rawurldecode((string) parse_url($_SERVER['HTTP_DESTINATION'] ?? '', PHP_URL_PATH));

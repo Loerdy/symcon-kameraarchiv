@@ -31,6 +31,8 @@
             "No snapshot received from %s (HTTP %d). Details in the debug output of the console.": "Kein Snapshot von %s erhalten (HTTP %d). Details in der Debug-Ausgabe der Konsole.",
             "The certificate of the Protect console could not be verified. For a self-signed certificate enable \"Do not verify certificate\".": "Das Zertifikat der Protect-Konsole konnte nicht geprüft werden. Bei einem selbstsignierten Zertifikat die Option „Zertifikat nicht prüfen“ aktivieren.",
             "Kept": "Behalten",
+            "Upload incomplete (%d of %d bytes)": "Upload unvollständig (%d von %d Bytes)",
+            "NAS upload": "NAS-Upload",
             "NAS (WebDAV)": "NAS (WebDAV)",
             "WebDAV address of the archive folder (empty: no NAS)": "WebDAV-Adresse des Archivordners (leer: kein NAS)",
             "Example for Synology: https://nas.local:5006/kamera-archiv (package \"WebDAV Server\", own user with access only to this shared folder). Upload, retention and folder are set in each camera.": "Beispiel für Synology: https://nas.local:5006/kamera-archiv (Paket „WebDAV Server“, eigener Benutzer mit Zugriff nur auf diesen freigegebenen Ordner). Upload, Aufbewahrung und Ordner werden in jeder Kamera eingestellt.",

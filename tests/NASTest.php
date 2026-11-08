@@ -89,6 +89,32 @@ class NASTest extends TestCase
         $this->assertSame("\xFF\xD8image\x00-1\xFF\xD9", file_get_contents(self::$root . '/' . $path));
         $this->assertSame([], $this->queue());
         $this->assertSame(0, $this->timer());
+        // The slot is emptied after the upload
+        $this->assertSame(0, IPS_GetMedia(IPS_GetObjectIDByIdent('NAS_001', $this->console))['MediaSize']);
+    }
+
+    public function testLargeImageArrivesComplete(): void
+    {
+        $this->configure();
+        // Larger than the 512 KiB a buffer can hold: the cause of truncated files with the first version
+        $data = "\xFF\xD8" . random_bytes(1500000) . "\xFF\xD9";
+        $path = $this->queueUpload('Haustür', 'Klingel', $data);
+
+        $this->module->RequestAction('ProcessUploads', 0);
+        $this->assertSame(md5($data), md5_file(self::$root . '/' . $path));
+    }
+
+    public function testIncompleteUploadIsRetried(): void
+    {
+        $this->configure();
+        $data = "\xFF\xD8" . str_repeat('x', 1500000) . "\xFF\xD9";
+        $this->queueUpload('Haustür', 'Truncate', $data);
+
+        $this->module->RequestAction('ProcessUploads', 0);
+        $queue = $this->queue();
+        $this->assertCount(1, $queue);
+        $this->assertSame(1, $queue[0]['attempts']);
+        $this->assertStringContainsString(sprintf('Upload incomplete (%d of %d bytes)', strlen($data) - 10, strlen($data)), $this->nasInfo());
     }
 
     public function testKeepCopyGoesToFolderForKeptImages(): void
@@ -173,13 +199,22 @@ class NASTest extends TestCase
     public function testQueueLimitDropsOldestUploads(): void
     {
         $this->configure('secret', 'http://127.0.0.1:1/archiv');
-        for ($i = 1; $i <= 101; $i++) {
-            $this->queueUpload('Haustür', 'T' . $i, 'x');
+        for ($i = 1; $i <= 31; $i++) {
+            $this->queueUpload('Haustür', 'T' . $i, 'image-' . $i);
         }
+        // 30 slots: the oldest upload gave way, its slot holds the newest image
         $queue = $this->queue();
-        $this->assertCount(100, $queue);
+        $this->assertCount(30, $queue);
         $this->assertStringEndsWith('_T2.jpg', $queue[0]['path']);
-        $this->assertSame('', (new ReflectionMethod($this->module, 'GetBuffer'))->invoke($this->module, 'UploadData_1'));
+        $this->assertSame(1, end($queue)['slot']);
+        $this->assertSame('image-31', base64_decode(IPS_GetMediaContent(IPS_GetObjectIDByIdent('NAS_001', $this->console))));
+        $this->assertCount(30, IPS_GetChildrenIDs($this->console));
+
+        // Copies need no slot, they are limited by count
+        for ($i = 1; $i <= 80; $i++) {
+            (new ReflectionMethod($this->module, 'QueueKeepCopy'))->invoke($this->module, 'Haustür/2026-11-08/12000' . ($i % 10) . '_K.jpg');
+        }
+        $this->assertCount(100, $this->queue());
 
         $big = str_repeat('x', 15 * 1048576);
         $this->queueUpload('Haustür', 'Big1', $big);
@@ -187,6 +222,21 @@ class NASTest extends TestCase
         $this->assertLessThanOrEqual(26214400, array_sum(array_column($this->queue(), 'size')));
         $queue = $this->queue();
         $this->assertStringEndsWith('_Big2.jpg', end($queue)['path']);
+    }
+
+    public function testUnusedSlotsAreEmptiedAfterRestart(): void
+    {
+        $this->configure('secret', 'http://127.0.0.1:1/archiv');
+        $this->queueUpload('Haustür', 'Klingel', 'a');
+        $this->queueUpload('Haustür', 'Klingel', 'b');
+        $slot = IPS_GetObjectIDByIdent('NAS_001', $this->console);
+        $this->assertGreaterThan(0, IPS_GetMedia($slot)['MediaSize']);
+
+        // Restart: the queue in RAM is gone, the cached media still hold the images
+        (new ReflectionMethod($this->module, 'SaveUploadQueue'))->invoke($this->module, []);
+        $this->module->MessageSink(0, 0, IPS_KERNELSTARTED, []);
+        $this->assertSame(0, IPS_GetMedia($slot)['MediaSize']);
+        $this->assertSame(0, IPS_GetMedia(IPS_GetObjectIDByIdent('NAS_002', $this->console))['MediaSize']);
     }
 
     public function testWithoutAddressNothingIsQueued(): void

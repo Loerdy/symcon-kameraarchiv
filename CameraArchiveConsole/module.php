@@ -42,14 +42,17 @@ class CameraArchiveConsole extends IPSModuleStrict
     // Actions of the tile, executed by the camera instances
     private const TILE_ACTIONS = ['TileSnapshot', 'TileKeep', 'TileDelete'];
 
-    // NAS (WebDAV): queue of uploads and copies in RAM, processed by one timer. The image data of every entry lies
-    // in its own buffer, so the queue index stays small.
+    // NAS (WebDAV): queue of uploads and copies, processed by one timer. The queue itself is a small buffer; the
+    // originals lie in a fixed pool of own media objects (ident NAS_001 …), cached like the images of the cameras.
+    // Buffers cannot hold images: the kernel keeps only the last 512 KiB of a buffer and clears all buffers of an
+    // instance above 1 MiB (see SymconStubs).
     private const UPLOAD_TIMER = 'ProcessUploads';
     private const UPLOAD_QUEUE_BUFFER = 'UploadQueue';
-    private const UPLOAD_DATA_PREFIX = 'UploadData_';
+    private const UPLOAD_SLOT_PREFIX = 'NAS_';
     private const UPLOAD_LOCK_TIMEOUT = 2000;
     // Limits of the queue (RAM of the SymBox); when full, the oldest uploads are dropped
     private const UPLOAD_MAX_ITEMS = 100;
+    private const UPLOAD_MAX_SLOTS = 30;
     private const UPLOAD_MAX_BYTES = 26214400;
     // Waiting time before the next attempt, by number of failed attempts (seconds)
     private const UPLOAD_RETRY_DELAYS = [60, 120, 300, 600, 1800];
@@ -83,6 +86,7 @@ class CameraArchiveConsole extends IPSModuleStrict
     public function MessageSink(int $TimeStamp, int $SenderID, int $Message, array $Data): void
     {
         if ($Message === IPS_KERNELSTARTED) {
+            $this->ClearUnusedUploadSlots();
             $this->UpdateTile();
         }
     }
@@ -108,6 +112,7 @@ class CameraArchiveConsole extends IPSModuleStrict
         if (IPS_GetKernelRunlevel() === KR_READY) {
             // The cameras apply the cache option to their media; at startup they ask for it themselves
             $this->SendToChildren(['Command' => 'Settings', 'MemoryCache' => $this->ReadPropertyBoolean('MemoryCache')]);
+            $this->ClearUnusedUploadSlots();
             $this->UpdateTile();
         }
 
@@ -365,11 +370,32 @@ class CameraArchiveConsole extends IPSModuleStrict
             $this->SaveNASState($state);
 
             $queue = $this->LoadUploadQueue();
+            $used = array_column(array_filter($queue, fn (array $Entry): bool => $Entry['kind'] === 'put'), 'slot');
+            $slot = 0;
+            for ($candidate = 1; $candidate <= self::UPLOAD_MAX_SLOTS; $candidate++) {
+                if (!in_array($candidate, $used, true)) {
+                    $slot = $candidate;
+                    break;
+                }
+            }
+            if ($slot === 0) {
+                // All slots wait for the NAS: the oldest upload gives way
+                foreach ($queue as $position => $entry) {
+                    if ($entry['kind'] === 'put') {
+                        $slot = $entry['slot'];
+                        array_splice($queue, $position, 1);
+                        $this->LogMessage(sprintf($this->Translate('NAS upload queue full: %d images were not uploaded.'), 1), KL_WARNING);
+                        break;
+                    }
+                }
+            }
+            if (!$this->WriteUploadSlot($slot, $Data)) {
+                $this->SaveUploadQueue($queue);
+                return '';
+            }
             $id = (int) $this->GetBuffer('UploadNextID') + 1;
             $this->SetBuffer('UploadNextID', (string) $id);
-            // Base64: buffers are not documented as binary safe
-            $this->SetBuffer(self::UPLOAD_DATA_PREFIX . $id, base64_encode($Data));
-            $queue[] = ['id' => $id, 'kind' => 'put', 'path' => $path, 'size' => strlen($Data), 'attempts' => 0, 'next' => 0.0];
+            $queue[] = ['id' => $id, 'kind' => 'put', 'path' => $path, 'size' => strlen($Data), 'attempts' => 0, 'next' => 0.0, 'slot' => $slot];
             $queue = $this->LimitUploadQueue($queue);
             $this->SaveUploadQueue($queue);
         } finally {
@@ -420,7 +446,9 @@ class CameraArchiveConsole extends IPSModuleStrict
         $dropped = 0;
         while (count($Queue) > self::UPLOAD_MAX_ITEMS || array_sum(array_column($Queue, 'size')) > self::UPLOAD_MAX_BYTES) {
             $entry = array_shift($Queue);
-            $this->SetBuffer(self::UPLOAD_DATA_PREFIX . $entry['id'], '');
+            if ($entry['kind'] === 'put') {
+                $this->ClearUploadSlot($entry['slot']);
+            }
             $dropped++;
         }
         if ($dropped > 0) {
@@ -469,7 +497,9 @@ class CameraArchiveConsole extends IPSModuleStrict
                         $current[$position]['attempts']++;
                         $current[$position]['next'] = microtime(true) + $delays[min($current[$position]['attempts'], count($delays)) - 1];
                     } else {
-                        $this->SetBuffer(self::UPLOAD_DATA_PREFIX . $item['id'], '');
+                        if ($item['kind'] === 'put') {
+                            $this->ClearUploadSlot($item['slot']);
+                        }
                         array_splice($current, $position, 1);
                     }
                     break;
@@ -512,8 +542,8 @@ class CameraArchiveConsole extends IPSModuleStrict
             return $this->HandleNASResult($response, [201, 204], $Entry['path']);
         }
 
-        $data = base64_decode($this->GetBuffer(self::UPLOAD_DATA_PREFIX . $Entry['id']), true);
-        if (!is_string($data) || $data === '') {
+        $data = $this->ReadUploadSlot($Entry['slot']);
+        if ($data === null) {
             $this->SendDebug('NAS', sprintf('%s: data missing, upload dropped', $Entry['path']), 0);
             return 'drop';
         }
@@ -521,7 +551,18 @@ class CameraArchiveConsole extends IPSModuleStrict
             return 'retry';
         }
         $response = $this->WebDAVRequest('PUT', $Entry['path'], $data, ['Content-Type: image/jpeg']);
-        return $this->HandleNASResult($response, [200, 201, 204], $Entry['path']);
+        $result = $this->HandleNASResult($response, [200, 201, 204], $Entry['path']);
+        if ($result !== 'done') {
+            return $result;
+        }
+        // The NAS confirmed the upload: its size is checked, as an incomplete file would stay unnoticed otherwise.
+        // Without an answer or size the upload counts as done (the check must not block working uploads).
+        $head = $this->WebDAVRequest('HEAD', $Entry['path']);
+        if ($head['errno'] === 0 && $head['code'] === 200 && $head['length'] >= 0 && $head['length'] !== strlen($data)) {
+            $message = sprintf($this->Translate('Upload incomplete (%d of %d bytes)'), $head['length'], strlen($data));
+            return $this->HandleNASResult(['errno' => 0, 'error' => '', 'code' => 0, 'body' => '', 'length' => -1, 'message' => $message], [200], $Entry['path']);
+        }
+        return 'done';
     }
 
     /**
@@ -555,6 +596,9 @@ class CameraArchiveConsole extends IPSModuleStrict
 
     private function DescribeNASResponse(array $Response, array $Success): string
     {
+        if (is_string($Response['message'] ?? null)) {
+            return $Response['message'];
+        }
         if ($Response['errno'] !== 0) {
             $this->SendDebug('NAS cURL error', sprintf('%d: %s', $Response['errno'], $Response['error']), 0);
             if (in_array($Response['errno'], self::CURL_TLS_ERRORS, true)) {
@@ -680,6 +724,9 @@ class CameraArchiveConsole extends IPSModuleStrict
             CURLOPT_TIMEOUT        => self::TOTAL_TIMEOUT,
             CURLOPT_HTTPHEADER     => $Headers
         ];
+        if ($Method === 'HEAD') {
+            $options[CURLOPT_NOBODY] = true;
+        }
         if ($this->ReadPropertyString('NASUser') !== '') {
             $options[CURLOPT_HTTPAUTH] = CURLAUTH_BASIC;
             $options[CURLOPT_USERPWD] = $this->ReadPropertyString('NASUser') . ':' . $this->ReadPropertyString('NASPassword');
@@ -694,13 +741,96 @@ class CameraArchiveConsole extends IPSModuleStrict
         curl_setopt_array($ch, $options);
         $body = curl_exec($ch);
         $response = [
-            'errno' => curl_errno($ch),
-            'error' => curl_error($ch),
-            'code'  => (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE),
-            'body'  => is_string($body) ? $body : ''
+            'errno'  => curl_errno($ch),
+            'error'  => curl_error($ch),
+            'code'   => (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE),
+            'body'   => is_string($body) ? $body : '',
+            // Content-Length of the answer, -1 if unknown
+            'length' => (int) curl_getinfo($ch, CURLINFO_CONTENT_LENGTH_DOWNLOAD_T)
         ];
         unset($ch);
         return $response;
+    }
+
+    /**
+     * Stores an original in its slot medium; the medium is created on first use and reused afterwards.
+     * Caching follows the option "Use in-memory cache" like the images of the cameras.
+     */
+    private function WriteUploadSlot(int $Slot, string $Data): bool
+    {
+        $ident = sprintf('%s%03d', self::UPLOAD_SLOT_PREFIX, $Slot);
+        $cached = $this->ReadPropertyBoolean('MemoryCache');
+        $mediaID = $this->FindUploadSlot($Slot);
+        if ($mediaID < 0) {
+            $this->SendDebug('NAS', sprintf('Ident %s is used by another object, upload skipped', $ident), 0);
+            return false;
+        }
+        if ($mediaID === 0) {
+            $mediaID = IPS_CreateMedia(MEDIATYPE_IMAGE);
+            IPS_SetMediaFile($mediaID, sprintf('media/CameraArchiveUpload_%d_%03d.jpg', $this->InstanceID, $Slot), false);
+            // Cache before the first content is written (flash protection)
+            IPS_SetMediaCached($mediaID, $cached);
+            IPS_SetParent($mediaID, $this->InstanceID);
+            IPS_SetIdent($mediaID, $ident);
+            // Name and visibility are only set once; afterwards they belong to the user
+            IPS_SetName($mediaID, sprintf('%s %02d', $this->Translate('NAS upload'), $Slot));
+            IPS_SetHidden($mediaID, true);
+        } elseif (IPS_GetMedia($mediaID)['MediaIsCached'] !== $cached) {
+            IPS_SetMediaCached($mediaID, $cached);
+        }
+        return IPS_SetMediaContent($mediaID, base64_encode($Data));
+    }
+
+    private function ReadUploadSlot(int $Slot): ?string
+    {
+        $mediaID = $this->FindUploadSlot($Slot);
+        if ($mediaID <= 0) {
+            return null;
+        }
+        try {
+            $content = @IPS_GetMediaContent($mediaID);
+        } catch (Throwable $exception) {
+            return null;
+        }
+        $data = is_string($content) ? base64_decode($content, true) : false;
+        return is_string($data) && $data !== '' ? $data : null;
+    }
+
+    /**
+     * Empties a slot after the upload, so the original does not occupy RAM or get written at shutdown.
+     */
+    private function ClearUploadSlot(int $Slot): void
+    {
+        $mediaID = $this->FindUploadSlot($Slot);
+        if ($mediaID > 0 && IPS_GetMedia($mediaID)['MediaSize'] > 0) {
+            IPS_SetMediaContent($mediaID, '');
+        }
+    }
+
+    /**
+     * Empties all slots that no waiting upload refers to, e.g. after a restart (the queue lies in RAM only).
+     */
+    private function ClearUnusedUploadSlots(): void
+    {
+        $used = array_column(array_filter($this->LoadUploadQueue(), fn (array $Entry): bool => $Entry['kind'] === 'put'), 'slot');
+        for ($slot = 1; $slot <= self::UPLOAD_MAX_SLOTS; $slot++) {
+            if (!in_array($slot, $used, true)) {
+                $this->ClearUploadSlot($slot);
+            }
+        }
+    }
+
+    /**
+     * ID of the slot medium: 0 if it does not exist, -1 if the ident belongs to another kind of object.
+     */
+    private function FindUploadSlot(int $Slot): int
+    {
+        // The warning for a missing ident is expected here, the result is checked
+        $id = @IPS_GetObjectIDByIdent(sprintf('%s%03d', self::UPLOAD_SLOT_PREFIX, $Slot), $this->InstanceID);
+        if ($id === false) {
+            return 0;
+        }
+        return IPS_MediaExists($id) && IPS_GetMedia($id)['MediaType'] === MEDIATYPE_IMAGE ? $id : -1;
     }
 
     private function LoadUploadQueue(): array
@@ -708,7 +838,8 @@ class CameraArchiveConsole extends IPSModuleStrict
         $queue = json_decode($this->GetBuffer(self::UPLOAD_QUEUE_BUFFER), true);
         return is_array($queue) ? array_values(array_filter($queue, fn (mixed $Entry): bool => is_array($Entry) && is_int($Entry['id'] ?? null)
             && in_array($Entry['kind'] ?? null, ['put', 'copy'], true) && is_string($Entry['path'] ?? null)
-            && is_int($Entry['size'] ?? null) && is_int($Entry['attempts'] ?? null) && (is_float($Entry['next'] ?? null) || is_int($Entry['next'] ?? null)))) : [];
+            && is_int($Entry['size'] ?? null) && is_int($Entry['attempts'] ?? null) && (is_float($Entry['next'] ?? null) || is_int($Entry['next'] ?? null))
+            && ($Entry['kind'] === 'copy' || (is_int($Entry['slot'] ?? null) && $Entry['slot'] >= 1 && $Entry['slot'] <= self::UPLOAD_MAX_SLOTS)))) : [];
     }
 
     private function SaveUploadQueue(array $Queue): void
@@ -722,10 +853,8 @@ class CameraArchiveConsole extends IPSModuleStrict
             return;
         }
         try {
-            foreach ($this->LoadUploadQueue() as $entry) {
-                $this->SetBuffer(self::UPLOAD_DATA_PREFIX . $entry['id'], '');
-            }
             $this->SaveUploadQueue([]);
+            $this->ClearUnusedUploadSlots();
         } finally {
             $this->LeaveUploadLock();
         }
