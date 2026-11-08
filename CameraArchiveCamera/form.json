@@ -145,6 +145,34 @@
         },
         {
             "type": "Label",
+            "caption": "NAS: the console uploads the original of every snapshot (address and access are set in the console).",
+            "bold": true
+        },
+        {
+            "type": "CheckBox",
+            "name": "NASUpload",
+            "caption": "Upload snapshots to the NAS"
+        },
+        {
+            "type": "ValidationTextBox",
+            "name": "NASFolder",
+            "caption": "Folder on the NAS (empty: name of this instance)"
+        },
+        {
+            "type": "NumberSpinner",
+            "name": "NASRetention",
+            "caption": "Keep images on the NAS for",
+            "suffix": "days",
+            "minimum": 0,
+            "maximum": 3650
+        },
+        {
+            "type": "Label",
+            "caption": "0 days: the module never deletes images on the NAS. Images marked as \"keep\" in the tile are copied into the subfolder for kept images, which is never deleted.",
+            "italic": true
+        },
+        {
+            "type": "Label",
             "caption": "Notifications: sent after a snapshot of a trigger has been stored.",
             "bold": true
         },

@@ -67,6 +67,10 @@ class CameraArchiveCamera extends IPSModuleStrict
     // Notifications whose last sending failed (reported once in the message log)
     private const NOTIFY_FAILED_BUFFER = 'NotifyFailed';
 
+    // Days the images stay on the NAS (0 = never deleted by the module)
+    private const NAS_RETENTION_DEFAULT = 30;
+    private const NAS_RETENTION_MAX = 3650;
+
     public function Create(): void
     {
         // Never delete this line!
@@ -77,6 +81,9 @@ class CameraArchiveCamera extends IPSModuleStrict
         $this->RegisterPropertyString('Triggers', '[]');
         $this->RegisterPropertyInteger('CameraLockout', self::CAMERA_LOCKOUT_DEFAULT);
         $this->RegisterPropertyString('Notifications', '[]');
+        $this->RegisterPropertyBoolean('NASUpload', false);
+        $this->RegisterPropertyString('NASFolder', '');
+        $this->RegisterPropertyInteger('NASRetention', self::NAS_RETENTION_DEFAULT);
 
         // Secret of the image WebHook, created once in ApplyChanges
         $this->RegisterAttributeString(self::TOKEN_ATTRIBUTE, '');
@@ -472,7 +479,17 @@ class CameraArchiveCamera extends IPSModuleStrict
         if (!$this->IsValidCameraID($cameraID)) {
             return ['ok' => false, 'message' => $this->Translate('No camera selected. Create the instance with the configurator.')];
         }
-        $result = $this->SendToConsole(['Command' => 'Snapshot', 'CameraID' => $cameraID]);
+        $request = ['Command' => 'Snapshot', 'CameraID' => $cameraID];
+        if ($this->ReadPropertyBoolean('NASUpload')) {
+            // The console uploads the original; folder: own setting, otherwise the name of the instance
+            $folder = trim($this->ReadPropertyString('NASFolder'));
+            $request['NAS'] = [
+                'folder'    => $folder !== '' ? $folder : IPS_GetName($this->InstanceID),
+                'trigger'   => $Trigger,
+                'retention' => max(0, min(self::NAS_RETENTION_MAX, $this->ReadPropertyInteger('NASRetention')))
+            ];
+        }
+        $result = $this->SendToConsole($request);
         if (!$result['ok']) {
             return ['ok' => false, 'message' => $result['message']];
         }
@@ -487,6 +504,7 @@ class CameraArchiveCamera extends IPSModuleStrict
         ];
 
         // Without an answer about the cache, the media are cached (flash protection)
+        $image['nas'] = is_string($result['nasPath'] ?? null) ? $result['nasPath'] : '';
         $stored = $this->StoreImage($image, $Trigger, ($result['memoryCache'] ?? true) !== false);
         if (!$stored['ok']) {
             return $stored;
@@ -1204,6 +1222,10 @@ class CameraArchiveCamera extends IPSModuleStrict
                 'width'   => $Image['width'],
                 'height'  => $Image['height']
             ];
+            // Optional field: path of the original on the NAS (entries without it are valid as before)
+            if (($Image['nas'] ?? '') !== '') {
+                $entries[count($entries) - 1]['nas'] = $Image['nas'];
+            }
             $index['images'] = $entries;
             if (!$this->SaveIndex($index, $Cached)) {
                 return ['ok' => false, 'message' => $this->Translate('The image index could not be saved')];
@@ -1327,28 +1349,43 @@ class CameraArchiveCamera extends IPSModuleStrict
         if (!$this->EnterStorageLock()) {
             return false;
         }
+        $changed = false;
+        $nasPath = '';
         try {
             $index = $this->LoadIndex();
             if ($index === null) {
                 return false;
             }
+            $found = false;
             foreach ($index['images'] as &$entry) {
                 if ($entry['slot'] === $Slot && $entry['seq'] === $Seq) {
-                    if ($entry['keep'] === $Keep) {
-                        return false;
+                    $found = true;
+                    if ($entry['keep'] !== $Keep) {
+                        $entry['keep'] = $Keep;
+                        $nasPath = $Keep && is_string($entry['nas'] ?? null) ? $entry['nas'] : '';
+                        $changed = true;
                     }
-                    $entry['keep'] = $Keep;
-                    unset($entry);
-                    $this->SendDebug('Storage', sprintf('Slot %d: keep %s', $Slot, $Keep ? 'on' : 'off'), 0);
-                    return $this->SaveIndex($index, null);
+                    break;
                 }
             }
             unset($entry);
-            $this->SendDebug('Storage', sprintf('Slot %d seq %d: not found, keep not changed', $Slot, $Seq), 0);
-            return false;
+            if (!$found) {
+                $this->SendDebug('Storage', sprintf('Slot %d seq %d: not found, keep not changed', $Slot, $Seq), 0);
+                return false;
+            }
+            if ($changed) {
+                $this->SendDebug('Storage', sprintf('Slot %d: keep %s', $Slot, $Keep ? 'on' : 'off'), 0);
+                $changed = $this->SaveIndex($index, null);
+            }
         } finally {
             $this->LeaveStorageLock();
         }
+        // Outside the storage lock: the console copies the original into the folder for kept images on the NAS
+        if ($changed && $nasPath !== '' && $this->HasConsole()) {
+            $result = $this->SendToConsole(['Command' => 'NASKeep', 'Path' => $nasPath]);
+            $this->SendDebug('NAS', sprintf('Keep copy of %s: %s', $nasPath, $result['ok'] ? 'queued' : $result['message']), 0);
+        }
+        return $changed;
     }
 
     /**

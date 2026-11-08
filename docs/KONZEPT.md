@@ -92,5 +92,5 @@ Keine Statusvariablen ohne Opt-in (Lizenzlimit).
 5. Kachel: HTML-SDK, WebHook für Bilder (5a); Aktionen Snapshot jetzt, Behalten, Löschen, Download (5b, per `requestAction` mit JSON-Wert; die Übersichtskachel leitet über die Konsole an die Kamera weiter, Snapshot über die Warteschlange)
 5u. Umbau: Konsole, Konfigurator, Instanz je Kamera, Übersichtskachel, Vollbildansicht
 6. Benachrichtigungen je Kamera: E-Mail per `SMTP_SendMailMedia(Ex)` mit dem Bild-Medienobjekt als Anhang (keine Datei) oder Push per `VISU_PostNotification` (ohne Bild); je Auslöser oder alle, optionale Bedingung Variable = Wert; nur Auslöser-Snapshots
-7. Synology WebDAV: Upload, Rotation, Offline-Warteschlange, Nachladen in der Kachel
+7. Synology WebDAV (7a): Zugang in der Konsole, Upload/Ordner/Aufbewahrung je Kamera; die Konsole lädt das Original hoch (Warteschlange je Bild in eigenem Buffer, max. 100 Bilder/25 MB, Wiederholung 1–30 min), Rotation täglich nach Tagesordnern per PROPFIND/DELETE, „Behalten“ per WebDAV-COPY in `<Kamera>/Behalten`. 7b: Nachladen älterer Bilder in der Kachel
 8. Weitere Quellen: Direkt-URL, Surveillance Station

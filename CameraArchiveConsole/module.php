@@ -42,6 +42,21 @@ class CameraArchiveConsole extends IPSModuleStrict
     // Actions of the tile, executed by the camera instances
     private const TILE_ACTIONS = ['TileSnapshot', 'TileKeep', 'TileDelete'];
 
+    // NAS (WebDAV): queue of uploads and copies in RAM, processed by one timer. The image data of every entry lies
+    // in its own buffer, so the queue index stays small.
+    private const UPLOAD_TIMER = 'ProcessUploads';
+    private const UPLOAD_QUEUE_BUFFER = 'UploadQueue';
+    private const UPLOAD_DATA_PREFIX = 'UploadData_';
+    private const UPLOAD_LOCK_TIMEOUT = 2000;
+    // Limits of the queue (RAM of the SymBox); when full, the oldest uploads are dropped
+    private const UPLOAD_MAX_ITEMS = 100;
+    private const UPLOAD_MAX_BYTES = 26214400;
+    // Waiting time before the next attempt, by number of failed attempts (seconds)
+    private const UPLOAD_RETRY_DELAYS = [60, 120, 300, 600, 1800];
+    // Folders known to exist, retention per camera folder, date of the last rotation, error state
+    private const NAS_STATE_BUFFER = 'NASState';
+    private const DATE_FOLDER_PATTERN = '/^\d{4}-\d{2}-\d{2}$/';
+
     public function Create(): void
     {
         // Never delete this line!
@@ -54,6 +69,13 @@ class CameraArchiveConsole extends IPSModuleStrict
         $this->RegisterPropertyInteger('ResizeWidth', 1280);
         $this->RegisterPropertyInteger('ResizeQuality', 75);
         $this->RegisterPropertyBoolean('MemoryCache', true);
+        $this->RegisterPropertyString('NASURL', '');
+        $this->RegisterPropertyString('NASUser', '');
+        $this->RegisterPropertyString('NASPassword', '');
+        $this->RegisterPropertyBoolean('NASSkipCertificateCheck', false);
+
+        // Only active while uploads are waiting
+        $this->RegisterTimer(self::UPLOAD_TIMER, 0, 'IPS_RequestAction($_IPS[\'TARGET\'], \'' . self::UPLOAD_TIMER . '\', 0);');
 
         $this->SetVisualizationType(INSTANCE_VISUALIZATION_TYPE_HTML);
     }
@@ -72,6 +94,11 @@ class CameraArchiveConsole extends IPSModuleStrict
 
         // Host or API key may have changed
         $this->SetBuffer(self::CAMERA_BUFFER, '');
+        // NAS address may have changed: folders are checked again, waiting uploads stay
+        $state = $this->LoadNASState();
+        $state['folders'] = [];
+        $this->SaveNASState($state);
+        $this->ScheduleUploads();
 
         if ($this->ReadPropertyBoolean('ResizeEnabled') && !$this->IsGDAvailable()) {
             $this->LogMessage($this->Translate('PHP extension GD is not available: images are stored without resizing.'), KL_WARNING);
@@ -94,6 +121,7 @@ class CameraArchiveConsole extends IPSModuleStrict
         if ($this->ReadPropertyBoolean('ResizeEnabled') && !$this->IsGDAvailable()) {
             $this->PatchFormField($form['elements'], 'GDMissing', 'visible', true);
         }
+        $this->PatchFormField($form['elements'], 'NASInfo', 'caption', $this->GetNASInfo());
         return json_encode($form);
     }
 
@@ -106,7 +134,8 @@ class CameraArchiveConsole extends IPSModuleStrict
         $command = is_array($request) && is_string($request['Command'] ?? null) ? $request['Command'] : '';
         $result = match ($command) {
             'GetCameras'   => $this->GetCamerasForChild(),
-            'Snapshot'     => $this->SnapshotForChild(is_string($request['CameraID'] ?? null) ? $request['CameraID'] : ''),
+            'Snapshot'     => $this->SnapshotForChild(is_string($request['CameraID'] ?? null) ? $request['CameraID'] : '', is_array($request['NAS'] ?? null) ? $request['NAS'] : null),
+            'NASKeep'      => $this->QueueKeepCopy(is_string($request['Path'] ?? null) ? $request['Path'] : ''),
             'GetSettings'  => ['ok' => true, 'message' => '', 'memoryCache' => $this->ReadPropertyBoolean('MemoryCache')],
             'StateChanged' => $this->HandleStateChanged(),
             default        => ['ok' => false, 'message' => 'Invalid request']
@@ -120,6 +149,10 @@ class CameraArchiveConsole extends IPSModuleStrict
      */
     public function RequestAction(string $Ident, mixed $Value): void
     {
+        if ($Ident === self::UPLOAD_TIMER) {
+            $this->ProcessUploads();
+            return;
+        }
         if (!in_array($Ident, self::TILE_ACTIONS, true)) {
             throw new Exception(sprintf('Invalid ident %s', $Ident));
         }
@@ -148,6 +181,19 @@ class CameraArchiveConsole extends IPSModuleStrict
     public function UITestConnection(): void
     {
         echo $this->FetchCameras()['message'];
+    }
+
+    /**
+     * Button "Test NAS connection": reads the archive folder (PROPFIND) and shows the result.
+     */
+    public function UITestNAS(): void
+    {
+        if ($this->GetNASBaseURL() === '') {
+            echo $this->Translate('Please enter a valid WebDAV address (http:// or https://) and click "Apply" first.');
+            return;
+        }
+        $response = $this->WebDAVRequest('PROPFIND', '', null, ['Depth: 0']);
+        echo $this->DescribeNASResponse($response, [207]);
     }
 
     private function DecodePacket(string $JSONString): ?array
@@ -249,12 +295,14 @@ class CameraArchiveConsole extends IPSModuleStrict
      * Fetches and downscales a snapshot. Result: ok, message; on success also image (base64), width, height, label
      * and memoryCache (option of the console, the camera applies it to its media).
      */
-    private function SnapshotForChild(string $CameraID): array
+    private function SnapshotForChild(string $CameraID, ?array $NAS): array
     {
         $result = $this->FetchSnapshot($CameraID);
         if (!$result['ok']) {
             return $result;
         }
+        // The NAS gets the original in full resolution, the camera the downscaled image
+        $nasPath = $NAS === null ? '' : $this->QueueUpload($NAS, $result['image']);
         $image = $this->ResizeImage($result['image']);
         return [
             'ok'          => true,
@@ -263,8 +311,480 @@ class CameraArchiveConsole extends IPSModuleStrict
             'width'       => $image['width'],
             'height'      => $image['height'],
             'label'       => $result['label'],
-            'memoryCache' => $this->ReadPropertyBoolean('MemoryCache')
+            'memoryCache' => $this->ReadPropertyBoolean('MemoryCache'),
+            'nasPath'     => $nasPath
         ];
+    }
+
+    /**
+     * WebDAV address without trailing slash, or '' if none or no valid http(s) address is set.
+     */
+    private function GetNASBaseURL(): string
+    {
+        $url = rtrim(trim($this->ReadPropertyString('NASURL')), '/');
+        $parts = parse_url($url);
+        if ($url === '' || !is_array($parts) || !in_array(strtolower($parts['scheme'] ?? ''), ['http', 'https'], true) || ($parts['host'] ?? '') === '') {
+            return '';
+        }
+        return $url;
+    }
+
+    /**
+     * Folder or file name for the NAS: characters not allowed on the NAS are replaced, umlauts stay (UTF-8).
+     */
+    private function SafeName(string $Name, string $Fallback): string
+    {
+        $name = trim((string) preg_replace('/[\x00-\x1F\x7F\/\\\\:*?"<>|]+/u', '_', $Name));
+        $name = trim($name, '. ');
+        return $name !== '' ? $name : $Fallback;
+    }
+
+    /**
+     * Queues the original of a snapshot. $NAS: folder, trigger, retention (days, 0 = keep). Returns the path relative
+     * to the WebDAV address ("Folder/2026-11-08/143005_Trigger.jpg"), or '' if nothing was queued.
+     */
+    private function QueueUpload(array $NAS, string $Data): string
+    {
+        if ($this->GetNASBaseURL() === '' || !function_exists('curl_init')) {
+            $this->SendDebug('NAS', 'No valid WebDAV address, upload skipped', 0);
+            return '';
+        }
+        $folder = $this->SafeName(is_string($NAS['folder'] ?? null) ? $NAS['folder'] : '', 'Camera');
+        $trigger = $this->SafeName(is_string($NAS['trigger'] ?? null) ? $NAS['trigger'] : '', 'manual');
+        $retention = is_int($NAS['retention'] ?? null) ? max(0, $NAS['retention']) : 0;
+        $time = time();
+        $path = $folder . '/' . date('Y-m-d', $time) . '/' . date('His', $time) . '_' . $trigger . '.jpg';
+
+        if (!$this->EnterUploadLock()) {
+            $this->SendDebug('NAS', 'Queue lock not available, upload skipped', 0);
+            return '';
+        }
+        try {
+            $state = $this->LoadNASState();
+            $state['retention'][$folder] = $retention;
+            $this->SaveNASState($state);
+
+            $queue = $this->LoadUploadQueue();
+            $id = (int) $this->GetBuffer('UploadNextID') + 1;
+            $this->SetBuffer('UploadNextID', (string) $id);
+            // Base64: buffers are not documented as binary safe
+            $this->SetBuffer(self::UPLOAD_DATA_PREFIX . $id, base64_encode($Data));
+            $queue[] = ['id' => $id, 'kind' => 'put', 'path' => $path, 'size' => strlen($Data), 'attempts' => 0, 'next' => 0.0];
+            $queue = $this->LimitUploadQueue($queue);
+            $this->SaveUploadQueue($queue);
+        } finally {
+            $this->LeaveUploadLock();
+        }
+        $this->SendDebug('NAS', sprintf('Queued %s (%d bytes)', $path, strlen($Data)), 0);
+        $this->ScheduleUploads();
+        return $path;
+    }
+
+    /**
+     * "Keep" in a tile: copies the uploaded image into the folder for kept images of its camera, which the
+     * rotation never deletes. The copy runs after a still waiting upload of the image (queue order).
+     */
+    private function QueueKeepCopy(string $Path): array
+    {
+        $segments = explode('/', $Path);
+        if ($this->GetNASBaseURL() === '' || count($segments) !== 3 || preg_match(self::DATE_FOLDER_PATTERN, $segments[1]) !== 1
+            || $this->SafeName($segments[0], '') !== $segments[0] || $this->SafeName($segments[2], '') !== $segments[2]) {
+            return ['ok' => false, 'message' => 'Invalid path'];
+        }
+        if (!$this->EnterUploadLock()) {
+            return ['ok' => false, 'message' => 'Queue busy'];
+        }
+        try {
+            $queue = $this->LoadUploadQueue();
+            $id = (int) $this->GetBuffer('UploadNextID') + 1;
+            $this->SetBuffer('UploadNextID', (string) $id);
+            $queue[] = ['id' => $id, 'kind' => 'copy', 'path' => $Path, 'size' => 0, 'attempts' => 0, 'next' => 0.0];
+            $this->SaveUploadQueue($this->LimitUploadQueue($queue));
+        } finally {
+            $this->LeaveUploadLock();
+        }
+        $this->ScheduleUploads();
+        return ['ok' => true, 'message' => ''];
+    }
+
+    private function KeepFolder(string $CameraFolder): string
+    {
+        return $CameraFolder . '/' . $this->Translate('Kept');
+    }
+
+    /**
+     * Drops the oldest uploads while the queue is too large. Copies need no memory and are only dropped by count.
+     */
+    private function LimitUploadQueue(array $Queue): array
+    {
+        $dropped = 0;
+        while (count($Queue) > self::UPLOAD_MAX_ITEMS || array_sum(array_column($Queue, 'size')) > self::UPLOAD_MAX_BYTES) {
+            $entry = array_shift($Queue);
+            $this->SetBuffer(self::UPLOAD_DATA_PREFIX . $entry['id'], '');
+            $dropped++;
+        }
+        if ($dropped > 0) {
+            $this->LogMessage(sprintf($this->Translate('NAS upload queue full: %d images were not uploaded.'), $dropped), KL_WARNING);
+        }
+        return $Queue;
+    }
+
+    /**
+     * Timer: processes the due entries in order. If the NAS fails, processing stops and is retried later, so an
+     * unreachable NAS is not asked for every waiting image. Network access never happens under the lock.
+     */
+    private function ProcessUploads(): void
+    {
+        if ($this->GetNASBaseURL() === '') {
+            // Address removed: waiting uploads are discarded
+            $this->ClearUploadQueue();
+            return;
+        }
+        if (!$this->EnterUploadLock()) {
+            return;
+        }
+        try {
+            $queue = $this->LoadUploadQueue();
+        } finally {
+            $this->LeaveUploadLock();
+        }
+
+        $now = microtime(true);
+        foreach ($queue as $entry) {
+            if ($entry['next'] > $now) {
+                break;
+            }
+            $result = $this->ExecuteUpload($entry);
+            if (!$this->EnterUploadLock()) {
+                break;
+            }
+            try {
+                $current = $this->LoadUploadQueue();
+                foreach ($current as $position => $item) {
+                    if ($item['id'] !== $entry['id']) {
+                        continue;
+                    }
+                    if ($result === 'retry') {
+                        $delays = self::UPLOAD_RETRY_DELAYS;
+                        $current[$position]['attempts']++;
+                        $current[$position]['next'] = microtime(true) + $delays[min($current[$position]['attempts'], count($delays)) - 1];
+                    } else {
+                        $this->SetBuffer(self::UPLOAD_DATA_PREFIX . $item['id'], '');
+                        array_splice($current, $position, 1);
+                    }
+                    break;
+                }
+                $this->SaveUploadQueue($current);
+            } finally {
+                $this->LeaveUploadLock();
+            }
+            if ($result === 'retry') {
+                break;
+            }
+        }
+
+        $this->ScheduleUploads();
+        if (count($this->LoadUploadQueue()) === 0) {
+            $this->RotateNAS();
+        }
+    }
+
+    /**
+     * Uploads or copies one entry. Result: "done", "retry" (NAS not reachable, no permission, folder missing …)
+     * or "drop" (the entry cannot succeed, e.g. the source of a copy no longer exists).
+     */
+    private function ExecuteUpload(array $Entry): string
+    {
+        $segments = explode('/', $Entry['path']);
+        if ($Entry['kind'] === 'copy') {
+            $target = $this->KeepFolder($segments[0]);
+            if (!$this->EnsureNASFolder($target)) {
+                return 'retry';
+            }
+            $response = $this->WebDAVRequest('COPY', $Entry['path'], null, [
+                'Destination: ' . $this->NASURL($target . '/' . $segments[2]),
+                'Overwrite: T'
+            ]);
+            if ($response['errno'] === 0 && $response['code'] === 404) {
+                $this->SendDebug('NAS', sprintf('%s: not on the NAS, copy dropped', $Entry['path']), 0);
+                return 'drop';
+            }
+            return $this->HandleNASResult($response, [201, 204], $Entry['path']);
+        }
+
+        $data = base64_decode($this->GetBuffer(self::UPLOAD_DATA_PREFIX . $Entry['id']), true);
+        if (!is_string($data) || $data === '') {
+            $this->SendDebug('NAS', sprintf('%s: data missing, upload dropped', $Entry['path']), 0);
+            return 'drop';
+        }
+        if (!$this->EnsureNASFolder($segments[0] . '/' . $segments[1])) {
+            return 'retry';
+        }
+        $response = $this->WebDAVRequest('PUT', $Entry['path'], $data, ['Content-Type: image/jpeg']);
+        return $this->HandleNASResult($response, [200, 201, 204], $Entry['path']);
+    }
+
+    /**
+     * Result of a NAS request for the queue; reports the first error of a series once and its end.
+     */
+    private function HandleNASResult(array $Response, array $Success, string $Path): string
+    {
+        $state = $this->LoadNASState();
+        if ($Response['errno'] === 0 && in_array($Response['code'], $Success, true)) {
+            if ($state['error'] !== '') {
+                $state['error'] = '';
+                $this->SaveNASState($state);
+                $this->LogMessage($this->Translate('NAS reachable again, waiting images are uploaded.'), KL_NOTIFY);
+            }
+            $this->SendDebug('NAS', sprintf('%s: HTTP %d', $Path, $Response['code']), 0);
+            return 'done';
+        }
+        $message = $this->DescribeNASResponse($Response, $Success);
+        $this->SendDebug('NAS', sprintf('%s: %s', $Path, $message), 0);
+        // Other client errors (e.g. 400, 415) cannot be solved by trying again
+        $permanent = $Response['errno'] === 0 && $Response['code'] >= 400 && $Response['code'] < 500
+            && !in_array($Response['code'], [401, 403, 404, 408, 409, 423, 429], true);
+        if ($state['error'] === '') {
+            $this->LogMessage(sprintf($this->Translate('NAS upload failed: %s. Images are kept in the queue and uploaded later.'), $message), KL_WARNING);
+        }
+        $state['error'] = $message;
+        $state['folders'] = [];
+        $this->SaveNASState($state);
+        return $permanent ? 'drop' : 'retry';
+    }
+
+    private function DescribeNASResponse(array $Response, array $Success): string
+    {
+        if ($Response['errno'] !== 0) {
+            $this->SendDebug('NAS cURL error', sprintf('%d: %s', $Response['errno'], $Response['error']), 0);
+            if (in_array($Response['errno'], self::CURL_TLS_ERRORS, true)) {
+                return $this->Translate('The certificate of the NAS could not be verified');
+            }
+            return $this->Translate('NAS not reachable');
+        }
+        if (in_array($Response['code'], $Success, true)) {
+            return $this->Translate('Connection to the NAS OK');
+        }
+        return match ($Response['code']) {
+            401, 403 => $this->Translate('NAS user or password invalid, or no permission for the folder'),
+            404, 409 => $this->Translate('Folder not found on the NAS'),
+            507      => $this->Translate('NAS storage full'),
+            default  => sprintf($this->Translate('Unexpected answer of the NAS (HTTP %d)'), $Response['code'])
+        };
+    }
+
+    /**
+     * Creates the folder and its parents (MKCOL) if they are not known to exist yet.
+     */
+    private function EnsureNASFolder(string $Folder): bool
+    {
+        $state = $this->LoadNASState();
+        $path = '';
+        foreach (explode('/', $Folder) as $segment) {
+            $path = $path === '' ? $segment : $path . '/' . $segment;
+            if (isset($state['folders'][$path])) {
+                continue;
+            }
+            $response = $this->WebDAVRequest('MKCOL', $path . '/');
+            // 201 created, 405 already exists (RFC 4918)
+            if ($response['errno'] !== 0 || !in_array($response['code'], [201, 405], true)) {
+                $this->HandleNASResult($response, [201, 405], $path);
+                return false;
+            }
+            $state['folders'][$path] = true;
+        }
+        $this->SaveNASState($state);
+        return true;
+    }
+
+    /**
+     * Once a day after the queue is empty: deletes the date folders of every camera folder that are older than its
+     * retention. Other folders (kept images) are never touched.
+     */
+    private function RotateNAS(): void
+    {
+        $state = $this->LoadNASState();
+        $today = date('Y-m-d');
+        if ($state['rotation'] === $today) {
+            return;
+        }
+        $complete = true;
+        foreach ($state['retention'] as $folder => $days) {
+            if (!is_int($days) || $days <= 0) {
+                continue;
+            }
+            $limit = date('Y-m-d', strtotime(sprintf('-%d days', $days)));
+            $response = $this->WebDAVRequest('PROPFIND', $folder . '/', null, ['Depth: 1']);
+            if ($response['errno'] !== 0 || $response['code'] !== 207) {
+                $this->SendDebug('Rotation', sprintf('%s: %s', $folder, $this->DescribeNASResponse($response, [207])), 0);
+                $complete = false;
+                continue;
+            }
+            foreach ($this->ParseDateFolders($response['body'], (string) $folder) as $date) {
+                if ($date >= $limit) {
+                    continue;
+                }
+                $delete = $this->WebDAVRequest('DELETE', $folder . '/' . $date . '/');
+                $this->SendDebug('Rotation', sprintf('%s/%s: HTTP %d', $folder, $date, $delete['code']), 0);
+                if ($delete['errno'] !== 0 || !in_array($delete['code'], [200, 204, 404], true)) {
+                    $complete = false;
+                }
+            }
+        }
+        if ($complete) {
+            $state = $this->LoadNASState();
+            $state['rotation'] = $today;
+            $this->SaveNASState($state);
+        }
+    }
+
+    /**
+     * Names of the date folders directly below the camera folder from a PROPFIND answer (Depth 1).
+     */
+    private function ParseDateFolders(string $Body, string $Folder): array
+    {
+        preg_match_all('#<(?:[A-Za-z][\w.-]*:)?href>\s*([^<]+?)\s*</(?:[A-Za-z][\w.-]*:)?href>#i', $Body, $matches);
+        $dates = [];
+        foreach ($matches[1] as $href) {
+            $path = rawurldecode((string) parse_url(html_entity_decode($href, ENT_QUOTES | ENT_XML1), PHP_URL_PATH));
+            $segments = explode('/', trim($path, '/'));
+            $name = end($segments);
+            $parent = prev($segments);
+            if (is_string($name) && $parent === $Folder && preg_match(self::DATE_FOLDER_PATTERN, $name) === 1) {
+                $dates[] = $name;
+            }
+        }
+        return array_values(array_unique($dates));
+    }
+
+    private function NASURL(string $Path): string
+    {
+        $segments = $Path === '' ? [] : explode('/', rtrim($Path, '/'));
+        $url = $this->GetNASBaseURL() . ($segments === [] ? '' : '/' . implode('/', array_map('rawurlencode', $segments)));
+        return str_ends_with($Path, '/') ? $url . '/' : $url;
+    }
+
+    /**
+     * WebDAV request. User and password are sent by curl (basic authentication) and never written to the debug output.
+     */
+    private function WebDAVRequest(string $Method, string $Path, ?string $Body = null, array $Headers = []): array
+    {
+        $url = $this->NASURL($Path);
+        $this->SendDebug('WebDAV', $Method . ' ' . $url, 0);
+        $ch = curl_init($url);
+        $options = [
+            CURLOPT_CUSTOMREQUEST  => $Method,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_CONNECTTIMEOUT => self::CONNECT_TIMEOUT,
+            CURLOPT_TIMEOUT        => self::TOTAL_TIMEOUT,
+            CURLOPT_HTTPHEADER     => $Headers
+        ];
+        if ($this->ReadPropertyString('NASUser') !== '') {
+            $options[CURLOPT_HTTPAUTH] = CURLAUTH_BASIC;
+            $options[CURLOPT_USERPWD] = $this->ReadPropertyString('NASUser') . ':' . $this->ReadPropertyString('NASPassword');
+        }
+        if ($Body !== null) {
+            $options[CURLOPT_POSTFIELDS] = $Body;
+        }
+        if ($this->ReadPropertyBoolean('NASSkipCertificateCheck')) {
+            $options[CURLOPT_SSL_VERIFYPEER] = false;
+            $options[CURLOPT_SSL_VERIFYHOST] = 0;
+        }
+        curl_setopt_array($ch, $options);
+        $body = curl_exec($ch);
+        $response = [
+            'errno' => curl_errno($ch),
+            'error' => curl_error($ch),
+            'code'  => (int) curl_getinfo($ch, CURLINFO_RESPONSE_CODE),
+            'body'  => is_string($body) ? $body : ''
+        ];
+        unset($ch);
+        return $response;
+    }
+
+    private function LoadUploadQueue(): array
+    {
+        $queue = json_decode($this->GetBuffer(self::UPLOAD_QUEUE_BUFFER), true);
+        return is_array($queue) ? array_values(array_filter($queue, fn (mixed $Entry): bool => is_array($Entry) && is_int($Entry['id'] ?? null)
+            && in_array($Entry['kind'] ?? null, ['put', 'copy'], true) && is_string($Entry['path'] ?? null)
+            && is_int($Entry['size'] ?? null) && is_int($Entry['attempts'] ?? null) && (is_float($Entry['next'] ?? null) || is_int($Entry['next'] ?? null)))) : [];
+    }
+
+    private function SaveUploadQueue(array $Queue): void
+    {
+        $this->SetBuffer(self::UPLOAD_QUEUE_BUFFER, (string) json_encode(array_values($Queue)));
+    }
+
+    private function ClearUploadQueue(): void
+    {
+        if (!$this->EnterUploadLock()) {
+            return;
+        }
+        try {
+            foreach ($this->LoadUploadQueue() as $entry) {
+                $this->SetBuffer(self::UPLOAD_DATA_PREFIX . $entry['id'], '');
+            }
+            $this->SaveUploadQueue([]);
+        } finally {
+            $this->LeaveUploadLock();
+        }
+        $this->SetTimerInterval(self::UPLOAD_TIMER, 0);
+    }
+
+    /**
+     * Sets the timer to the next due entry, or stops it if the queue is empty.
+     */
+    private function ScheduleUploads(): void
+    {
+        $queue = $this->LoadUploadQueue();
+        if (count($queue) === 0 || $this->GetNASBaseURL() === '') {
+            $this->SetTimerInterval(self::UPLOAD_TIMER, count($queue) === 0 ? 0 : 1);
+            return;
+        }
+        $next = min(array_map(fn (array $Entry): float => (float) $Entry['next'], $queue));
+        $this->SetTimerInterval(self::UPLOAD_TIMER, max(1, (int) ceil(($next - microtime(true)) * 1000)));
+    }
+
+    private function LoadNASState(): array
+    {
+        $state = json_decode($this->GetBuffer(self::NAS_STATE_BUFFER), true);
+        $state = is_array($state) ? $state : [];
+        return [
+            'folders'   => is_array($state['folders'] ?? null) ? $state['folders'] : [],
+            'retention' => is_array($state['retention'] ?? null) ? $state['retention'] : [],
+            'rotation'  => is_string($state['rotation'] ?? null) ? $state['rotation'] : '',
+            'error'     => is_string($state['error'] ?? null) ? $state['error'] : ''
+        ];
+    }
+
+    private function SaveNASState(array $State): void
+    {
+        $json = (string) json_encode($State);
+        if ($this->GetBuffer(self::NAS_STATE_BUFFER) !== $json) {
+            $this->SetBuffer(self::NAS_STATE_BUFFER, $json);
+        }
+    }
+
+    private function EnterUploadLock(): bool
+    {
+        return IPS_SemaphoreEnter('CARC_Upload_' . $this->InstanceID, self::UPLOAD_LOCK_TIMEOUT);
+    }
+
+    private function LeaveUploadLock(): void
+    {
+        IPS_SemaphoreLeave('CARC_Upload_' . $this->InstanceID);
+    }
+
+    private function GetNASInfo(): string
+    {
+        if ($this->GetNASBaseURL() === '') {
+            return $this->Translate('NAS: not set up');
+        }
+        $queue = $this->LoadUploadQueue();
+        $info = sprintf($this->Translate('NAS: %d waiting, %.1f MB'), count($queue), array_sum(array_column($queue, 'size')) / 1048576);
+        $error = $this->LoadNASState()['error'];
+        return $error === '' ? $info : $info . ' – ' . sprintf($this->Translate('last error: %s'), $error);
     }
 
     /**

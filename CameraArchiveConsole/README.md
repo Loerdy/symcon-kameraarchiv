@@ -2,7 +2,7 @@
 
 Verbindung zur UniFi-Protect-Konsole. Die Kamera-Instanzen holen ihre Snapshots über diese Instanz. Ihre Kachel zeigt alle verbundenen Kameras auf einen Blick.
 
-> Status: in Entwicklung. NAS folgt.
+> Status: in Entwicklung. Das Blättern im NAS-Archiv in der Kachel folgt.
 
 ### Inhaltsverzeichnis
 
@@ -21,6 +21,7 @@ Verbindung zur UniFi-Protect-Konsole. Die Kamera-Instanzen holen ihre Snapshots 
 * Snapshot-Abruf für die [Kamera-Instanzen](../CameraArchiveCamera/README.md), in voller Auflösung, wenn die Kamera Full-HD-Snapshots unterstützt
 * Optionale Verkleinerung vor dem Speichern (Standard: an, 1280 px Breite, JPEG-Qualität 75)
 * Einstellung „In-Memory-Cache verwenden“ für alle Kameras
+* Upload der Originalbilder auf ein NAS per WebDAV, mit Warteschlange und täglichem Aufräumen
 * Übersichtskachel mit allen Kameras
 
 ### 2. Voraussetzungen
@@ -50,6 +51,9 @@ __Konfigurationsseite__:
 | Bilder vor dem Speichern verkleinern | Verkleinert Bilder, die breiter als die maximale Breite sind. Kleinere Bilder werden unverändert gespeichert. Standardmäßig an. |
 | Maximale Breite | Breite in Pixeln, das Seitenverhältnis bleibt erhalten. Standard 1280. |
 | JPEG-Qualität | Qualität der verkleinerten Bilder (30–95). Standard 75. |
+| WebDAV-Adresse des Archivordners | z. B. `https://nas.local:5006/kamera-archiv`. Leer = kein NAS. IPv6 in eckigen Klammern. |
+| Benutzer, Passwort | Zugang zum WebDAV-Server (Basic-Authentifizierung). Bei `http://` gehen sie unverschlüsselt durchs Netz, deshalb `https://` verwenden. |
+| Zertifikat des NAS nicht prüfen | Für NAS mit selbstsigniertem Zertifikat. Standardmäßig aus. |
 
 __In-Memory-Cache__:
 
@@ -57,11 +61,22 @@ __In-Memory-Cache__:
 * Aus: Jedes Bild wird sofort auf den Speicher geschrieben. Das ist für Systeme mit Festplatte gedacht (z. B. Docker auf einem NAS) und sollte auf der SymBox oder bei SD-/SSD-Speicher nicht verwendet werden.
 * Eine Änderung wird beim Übernehmen sofort auf alle verbundenen Kameras angewendet.
 
+__NAS (WebDAV)__:
+
+Einrichtung auf einer Synology: Paket „WebDAV Server“ installieren und HTTPS aktivieren (Port 5006), einen freigegebenen Ordner (z. B. `kamera-archiv`) und einen eigenen Benutzer anlegen, der nur auf diesen Ordner Schreibzugriff hat. In jeder Kamera „Snapshots auf das NAS hochladen“ einschalten.
+
+* Abgelegt wird das Original in voller Auflösung, vor dem Verkleinern: `<Archivordner>/<Kameraordner>/<JJJJ-MM-TT>/<HHMMSS>_<Auslöser>.jpg`. Umlaute bleiben erhalten, Zeichen wie `/` oder `:` werden durch `_` ersetzt.
+* Die Uploads laufen über eine Warteschlange im Arbeitsspeicher. Ist das NAS nicht erreichbar, bleiben die Bilder dort und werden später erneut versucht (nach 1, 2, 5, 10, dann alle 30 Minuten). Die Warteschlange fasst höchstens 100 Bilder bzw. 25 MB; ist sie voll, entfallen die ältesten Bilder. Bei einem Neustart von Symcon gehen noch nicht hochgeladene Bilder verloren.
+* Ein Fehler wird einmal im Meldungsfenster gemeldet, ebenso, wenn das NAS wieder erreichbar ist. Der aktuelle Stand steht im Formular unter „NAS: … wartend“.
+* Einmal täglich, nachdem alle Bilder hochgeladen sind, löscht das Modul je Kamera die Tagesordner, die älter als die eingestellte Aufbewahrung sind. Andere Ordner und Dateien werden nicht angefasst.
+* Wird ein hochgeladenes Bild in der Kachel als „Behalten“ markiert, kopiert das Modul es auf dem NAS in den Unterordner „Behalten“ der Kamera. Dieser Ordner wird nie gelöscht. Das Aufheben der Markierung löscht die Kopie nicht.
+
 __Testbereich__:
 
 | Name | Beschreibung |
 | ---- | ------------ |
 | Verbindung testen | Fragt die Kameraliste ab und meldet das Ergebnis. |
+| NAS-Verbindung testen | Liest den Archivordner auf dem NAS und meldet das Ergebnis. |
 
 __Status__:
 

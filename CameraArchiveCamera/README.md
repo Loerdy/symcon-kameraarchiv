@@ -2,7 +2,7 @@
 
 Eine Kamera der UniFi-Protect-Konsole: nimmt per Auslöser oder manuell Snapshots auf, speichert die neuesten Bilder als Medienobjekte unterhalb der Instanz und zeigt sie in einer Kachel an.
 
-> Status: in Entwicklung. NAS folgt.
+> Status: in Entwicklung. Das Blättern im NAS-Archiv in der Kachel folgt.
 
 ### Inhaltsverzeichnis
 
@@ -19,6 +19,7 @@ Eine Kamera der UniFi-Protect-Konsole: nimmt per Auslöser oder manuell Snapshot
 * Snapshots über die [Kamera-Archiv Konsole](../CameraArchiveConsole/README.md)
 * Auslöser: Variablen (Klingel, Türkontakt, Bewegungsmelder …) lösen Snapshots aus, mit Verzögerung und Sperrzeit
 * Ringpuffer der neuesten Bilder als Medienobjekte unterhalb der Instanz (Standard: 5 Bilder)
+* Optional Upload jedes Snapshots in voller Auflösung auf ein NAS (WebDAV) mit Aufbewahrungsdauer in Tagen
 * Benachrichtigung per E-Mail mit Bild oder per Push-Nachricht, je Auslöser und mit optionaler Bedingung (z. B. niemand zu Hause)
 * Kachel mit neuestem Bild, Archivleiste, Filter nach Auslöser und Vollbildansicht
 
@@ -46,6 +47,9 @@ __Konfigurationsseite__:
 | Bilder im RAM | Anzahl der gespeicherten Bilder (1–200, Standard 5). |
 | Auslöser | Liste der Auslöser, Bearbeiten über das Stift-Symbol. Je Auslöser: Aktiv, Name (erscheint als Auslöser am Bild; leer = Name der Variable), Variable, Bedingung, Wert (bei „Wechselt auf Wert“ und „Wird mit Wert aktualisiert“; bei Bool-Variablen Auswahl wahr/falsch, sonst Eingabe als Zahl mit Komma oder Punkt bzw. als Text, Groß-/Kleinschreibung zählt, leer löst nie aus), Verzögerung (0–60 s) und Sperrzeit (0–3600 s, Standard 30 s). Das Wertfeld passt sich der gewählten Variable an. Rot markiert: Variable fehlt. |
 | Mindestabstand zwischen zwei Snapshots | Gilt über alle Auslöser dieser Kamera hinweg, z. B. wenn Klingel und Türkontakt gleichzeitig auslösen. Standard 5 s, 0 = aus. |
+| Snapshots auf das NAS hochladen | Die Konsole lädt das Original jedes Snapshots dieser Kamera auf das NAS. Adresse und Zugang werden in der Konsole eingestellt. Standardmäßig aus. |
+| Ordner auf dem NAS | Ordner dieser Kamera im Archivordner. Leer = Name der Instanz. Wird die Instanz umbenannt, landen neue Bilder in einem neuen Ordner; dann besser einen festen Ordner eintragen. |
+| Bilder auf dem NAS aufbewahren für | Tagesordner, die älter sind, löscht das Modul einmal täglich. 0 = nie löschen. Standard 30 Tage. |
 | Benachrichtigungen | Liste der Benachrichtigungen, Bearbeiten über das Stift-Symbol, siehe unten. Rot markiert: Instanz fehlt, Empfänger ungültig, Bedingungsvariable fehlt oder Bedingungswert nicht gesetzt. |
 
 Soll ein Ereignis mehrere Kameras auslösen (z. B. die Klingel für Haustür und Einfahrt), wird der Auslöser in jeder dieser Kameras eingetragen.

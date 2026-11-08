@@ -70,6 +70,42 @@
             "name": "GDMissing",
             "caption": "PHP extension GD is not available: images are stored without resizing.",
             "visible": false
+        },
+        {
+            "type": "Label",
+            "caption": "NAS (WebDAV)",
+            "bold": true
+        },
+        {
+            "type": "ValidationTextBox",
+            "name": "NASURL",
+            "caption": "WebDAV address of the archive folder (empty: no NAS)",
+            "width": "500px"
+        },
+        {
+            "type": "Label",
+            "caption": "Example for Synology: https://nas.local:5006/kamera-archiv (package \"WebDAV Server\", own user with access only to this shared folder). Upload, retention and folder are set in each camera.",
+            "italic": true
+        },
+        {
+            "type": "ValidationTextBox",
+            "name": "NASUser",
+            "caption": "User"
+        },
+        {
+            "type": "PasswordTextBox",
+            "name": "NASPassword",
+            "caption": "Password"
+        },
+        {
+            "type": "CheckBox",
+            "name": "NASSkipCertificateCheck",
+            "caption": "Do not verify certificate of the NAS (for self-signed certificates)"
+        },
+        {
+            "type": "Label",
+            "name": "NASInfo",
+            "caption": "NAS: not set up"
         }
     ],
     "actions": [
@@ -77,6 +113,11 @@
             "type": "Button",
             "caption": "Test connection",
             "onClick": "CARC_UITestConnection($id);"
+        },
+        {
+            "type": "Button",
+            "caption": "Test NAS connection",
+            "onClick": "CARC_UITestNAS($id);"
         }
     ],
     "status": [
