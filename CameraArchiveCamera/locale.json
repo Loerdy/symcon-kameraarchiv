@@ -34,7 +34,7 @@
             "No camera selected (create the instance with the configurator)": "Keine Kamera gewählt (Instanz mit dem Konfigurator anlegen)",
             "Not connected to a Camera Archive Console": "Nicht mit einer Kamera-Archiv Konsole verbunden",
             "Name (empty: name of the variable)": "Name (leer: Name der Variable)",
-            "Select the variable and confirm with OK, then open the trigger again to set the value.": "Variable auswählen und mit OK bestätigen, danach den Auslöser erneut öffnen, um den Wert festzulegen.",
+            "Select a variable to set the value.": "Zum Festlegen des Werts eine Variable auswählen.",
             "Lockout time of this trigger": "Sperrzeit dieses Auslösers",
             "No Protect console connected": "Keine Protect-Konsole verbunden",
             "Invalid answer of the Protect console": "Ungültige Antwort der Protect-Konsole",

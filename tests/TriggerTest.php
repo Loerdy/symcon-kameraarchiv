@@ -226,42 +226,72 @@ class TriggerTest extends TestCase
     public function testTriggerDialogAndRows(): void
     {
         $variable = $this->variable(VARIABLETYPE_BOOLEAN, false);
-        $this->setTriggers([$this->trigger($variable, 0, ['Extra' => true, 'Value' => 'null'])], 0);
+        $legacy = $this->variable(VARIABLETYPE_BOOLEAN, false);
+        $this->setTriggers([
+            $this->trigger($variable, 0, ['Extra' => true, 'Value' => 'null']),
+            $this->trigger($legacy, 2, ['Value' => 'false'])
+        ], 0);
 
-        // Boolean: selection true/false with the saved format
+        // Both value fields are always in the dialog, the one matching the variable type is visible
         $dialog = array_column(json_decode(CAR_UITriggerForm($this->id, $variable, 0), true), null, 'name');
+        $this->assertFalse($dialog['ValueBool']['visible']);
         $this->assertFalse($dialog['Value']['visible']);
         $this->assertFalse($dialog['ValueHint']['visible']);
-        $dialog = array_column(json_decode(CAR_UITriggerForm($this->id, $variable, 2), true), null, 'name');
-        $this->assertSame('Select', $dialog['Value']['type']);
-        $this->assertSame(['true', 'false'], array_column($dialog['Value']['options'], 'value'));
-        $this->assertTrue($dialog['Value']['visible']);
-        $this->assertStringEndsWith('$Condition, ' . $variable . ');', $dialog['VariableID']['onChange']);
+        $this->assertSame('CAR_UITriggerUpdate($id, $VariableID, $Condition);', $dialog['VariableID']['onChange']);
         // No SelectValue: the dialog failed to load with it
         $this->assertNotContains('SelectValue', array_column($dialog, 'type'));
 
-        // Other types: text field
+        $dialog = array_column(json_decode(CAR_UITriggerForm($this->id, $variable, 2), true), null, 'name');
+        $this->assertSame('Select', $dialog['ValueBool']['type']);
+        $this->assertSame(['true', 'false'], array_column($dialog['ValueBool']['options'], 'value'));
+        $this->assertTrue($dialog['ValueBool']['visible']);
+        $this->assertFalse($dialog['Value']['visible']);
+
         foreach ([VARIABLETYPE_INTEGER => 0, VARIABLETYPE_FLOAT => 0.0, VARIABLETYPE_STRING => ''] as $type => $initial) {
             $dialog = array_column(json_decode(CAR_UITriggerForm($this->id, $this->variable($type, $initial), 3), true), null, 'name');
             $this->assertSame('ValidationTextBox', $dialog['Value']['type']);
             $this->assertTrue($dialog['Value']['visible']);
+            $this->assertFalse($dialog['ValueBool']['visible']);
+            $this->assertSame($type === VARIABLETYPE_STRING ? 'Value (text)' : 'Value (number)', $dialog['Value']['caption']);
         }
 
-        // New row or deleted variable: no value field, a hint is shown instead
+        // New row or deleted variable: hint instead of a value field
         foreach ([0, 999999] as $missing) {
             $dialog = array_column(json_decode(CAR_UITriggerForm($this->id, $missing, 2), true), null, 'name');
-            $this->assertArrayNotHasKey('Value', $dialog);
+            $this->assertFalse($dialog['ValueBool']['visible']);
+            $this->assertFalse($dialog['Value']['visible']);
             $this->assertTrue($dialog['ValueHint']['visible']);
-            $this->assertStringEndsWith('$Condition, 0);', $dialog['VariableID']['onChange']);
         }
 
         $form = json_decode(IPS_GetConfigurationForm($this->id), true);
         $elements = array_column($form['elements'], null, 'name');
+        $rows = $elements['Triggers']['values'];
         // All saved values of the row are kept for saving, including values of former versions
-        $this->assertSame('Test', $elements['Triggers']['values'][0]['Name']);
-        $this->assertTrue($elements['Triggers']['values'][0]['Extra']);
-        $this->assertSame('', $elements['Triggers']['values'][0]['rowColor']);
-        $this->assertSame('', $elements['Triggers']['values'][0]['Value']);
+        $this->assertSame('Test', $rows[0]['Name']);
+        $this->assertTrue($rows[0]['Extra']);
+        $this->assertSame('', $rows[0]['rowColor']);
+        $this->assertSame('', $rows[0]['Value']);
+        $this->assertArrayNotHasKey('ValueBool', $rows[0]);
+        // Boolean value of a former version is shown in the selection
+        $this->assertSame('false', $rows[1]['ValueBool']);
+    }
+
+    public function testBooleanValueFromSelection(): void
+    {
+        $selection = $this->variable(VARIABLETYPE_BOOLEAN, true);
+        $legacy = $this->variable(VARIABLETYPE_BOOLEAN, true);
+        $this->setTriggers([
+            // The selection wins over an old value in "Value"
+            $this->trigger($selection, 3, ['Lockout' => 0, 'Value' => 'true', 'ValueBool' => 'false']),
+            // Rows of former versions without "ValueBool" use "Value"
+            $this->trigger($legacy, 3, ['Lockout' => 0, 'Value' => 'false'])
+        ], 0);
+
+        $this->update($selection, true);
+        $this->update($selection, false);
+        $this->update($legacy, true);
+        $this->update($legacy, false);
+        $this->assertCount(2, $this->queue());
     }
 
     private function variable(int $Type, mixed $Value): int

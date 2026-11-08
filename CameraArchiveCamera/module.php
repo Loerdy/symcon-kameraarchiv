@@ -221,60 +221,43 @@ class CameraArchiveCamera extends IPSModuleStrict
      */
     public function UITriggerForm(int $VariableID, int $Condition): string
     {
-        // The value field matches the type of the saved variable. SelectValue is not used: the dialog failed to load
-        // with it ("Unexpected end of JSON input"). A new row has no variable yet: then a hint is shown instead.
-        $type = $VariableID > 0 && IPS_VariableExists($VariableID) ? IPS_GetVariable($VariableID)['VariableType'] : null;
-        $dialogVariableID = $type === null ? 0 : $VariableID;
-        $update = 'CAR_UITriggerUpdate($id, $VariableID, $Condition, ' . $dialogVariableID . ');';
-        $needsValue = $this->ConditionNeedsValue($Condition);
-        $elements = [
+        // SelectValue is not used: the dialog failed to load with it ("Unexpected end of JSON input").
+        // Instead the dialog holds a selection for booleans and a text field for numbers and text; onChange shows the
+        // field matching the type of the selected variable.
+        $fields = $this->GetValueFieldState($VariableID, $Condition);
+        $update = 'CAR_UITriggerUpdate($id, $VariableID, $Condition);';
+        return json_encode([
             ['type' => 'CheckBox', 'name' => 'Active', 'caption' => $this->Translate('Active')],
             ['type' => 'ValidationTextBox', 'name' => 'Name', 'caption' => $this->Translate('Name (empty: name of the variable)')],
             ['type' => 'SelectVariable', 'name' => 'VariableID', 'caption' => $this->Translate('Variable'), 'onChange' => $update],
-            ['type' => 'Select', 'name' => 'Condition', 'caption' => $this->Translate('Condition'), 'options' => $this->GetConditionOptions(), 'onChange' => $update]
-        ];
-        if ($type === VARIABLETYPE_BOOLEAN) {
-            $elements[] = [
+            ['type' => 'Select', 'name' => 'Condition', 'caption' => $this->Translate('Condition'), 'options' => $this->GetConditionOptions(), 'onChange' => $update],
+            [
                 'type'    => 'Select',
-                'name'    => 'Value',
+                'name'    => 'ValueBool',
                 'caption' => $this->Translate('Value'),
                 'options' => [
                     ['caption' => $this->Translate('true (on)'), 'value' => 'true'],
                     ['caption' => $this->Translate('false (off)'), 'value' => 'false']
                 ],
-                'visible' => $needsValue
-            ];
-        } elseif ($type !== null) {
-            $elements[] = [
-                'type'    => 'ValidationTextBox',
-                'name'    => 'Value',
-                'caption' => $this->Translate($type === VARIABLETYPE_STRING ? 'Value (text)' : 'Value (number)'),
-                'visible' => $needsValue
-            ];
-        }
-        $elements[] = [
-            'type'    => 'Label',
-            'name'    => 'ValueHint',
-            'caption' => $this->Translate('Select the variable and confirm with OK, then open the trigger again to set the value.'),
-            'visible' => $needsValue && $type === null
-        ];
-        $elements[] = ['type' => 'NumberSpinner', 'name' => 'Delay', 'caption' => $this->Translate('Delay'), 'suffix' => 's', 'minimum' => 0, 'maximum' => self::DELAY_MAX];
-        $elements[] = ['type' => 'NumberSpinner', 'name' => 'Lockout', 'caption' => $this->Translate('Lockout time of this trigger'), 'suffix' => 's', 'minimum' => 0, 'maximum' => self::LOCKOUT_MAX];
-        return json_encode($elements);
+                'visible' => $fields['ValueBool']
+            ],
+            ['type' => 'ValidationTextBox', 'name' => 'Value', 'caption' => $fields['caption'], 'visible' => $fields['Value']],
+            ['type' => 'Label', 'name' => 'ValueHint', 'caption' => $this->Translate('Select a variable to set the value.'), 'visible' => $fields['ValueHint']],
+            ['type' => 'NumberSpinner', 'name' => 'Delay', 'caption' => $this->Translate('Delay'), 'suffix' => 's', 'minimum' => 0, 'maximum' => self::DELAY_MAX],
+            ['type' => 'NumberSpinner', 'name' => 'Lockout', 'caption' => $this->Translate('Lockout time of this trigger'), 'suffix' => 's', 'minimum' => 0, 'maximum' => self::LOCKOUT_MAX]
+        ]);
     }
 
     /**
-     * onChange of variable and condition in the trigger dialog. The value field fits only the variable the dialog was
-     * opened with ($DialogVariableID, 0 = no value field); for another variable the hint is shown instead.
+     * onChange of variable and condition in the trigger dialog: shows the value field matching the variable type.
      */
-    public function UITriggerUpdate(int $VariableID, int $Condition, int $DialogVariableID): void
+    public function UITriggerUpdate(int $VariableID, int $Condition): void
     {
-        $needsValue = $this->ConditionNeedsValue($Condition);
-        $fieldFits = $DialogVariableID > 0 && $VariableID === $DialogVariableID;
-        if ($DialogVariableID > 0) {
-            $this->UpdateFormField('Value', 'visible', $needsValue && $fieldFits);
-        }
-        $this->UpdateFormField('ValueHint', 'visible', $needsValue && !$fieldFits);
+        $fields = $this->GetValueFieldState($VariableID, $Condition);
+        $this->UpdateFormField('ValueBool', 'visible', $fields['ValueBool']);
+        $this->UpdateFormField('Value', 'caption', $fields['caption']);
+        $this->UpdateFormField('Value', 'visible', $fields['Value']);
+        $this->UpdateFormField('ValueHint', 'visible', $fields['ValueHint']);
     }
 
     /**
@@ -444,6 +427,7 @@ class CameraArchiveCamera extends IPSModuleStrict
                 'VariableID' => is_int($row['VariableID'] ?? null) ? $row['VariableID'] : 0,
                 'Condition'  => is_int($condition) && $condition >= self::CONDITION_CHANGE && $condition <= self::CONDITION_UPDATE_WITH ? $condition : self::CONDITION_CHANGE,
                 'Value'      => is_string($row['Value'] ?? null) ? $row['Value'] : '',
+                'ValueBool'  => is_string($row['ValueBool'] ?? null) ? $row['ValueBool'] : '',
                 'Delay'      => $this->ClampInteger($row['Delay'] ?? 0, 0, self::DELAY_MAX, 0),
                 'Lockout'    => $this->ClampInteger($row['Lockout'] ?? self::TRIGGER_LOCKOUT_DEFAULT, 0, self::LOCKOUT_MAX, self::TRIGGER_LOCKOUT_DEFAULT)
             ];
@@ -471,6 +455,10 @@ class CameraArchiveCamera extends IPSModuleStrict
             if (($row['Value'] ?? null) === 'null') {
                 $row['Value'] = '';
             }
+            // Former versions saved the value of booleans in "Value"
+            if (!isset($row['ValueBool']) && in_array($row['Value'] ?? null, ['true', 'false'], true)) {
+                $row['ValueBool'] = $row['Value'];
+            }
             $rows[] = $row;
         }
         return $rows;
@@ -489,6 +477,21 @@ class CameraArchiveCamera extends IPSModuleStrict
     private function ConditionNeedsValue(int $Condition): bool
     {
         return $Condition === self::CONDITION_CHANGE_TO || $Condition === self::CONDITION_UPDATE_WITH;
+    }
+
+    /**
+     * Visibility of the value fields in the trigger dialog and the caption of the text field.
+     */
+    private function GetValueFieldState(int $VariableID, int $Condition): array
+    {
+        $needsValue = $this->ConditionNeedsValue($Condition);
+        $type = $VariableID > 0 && IPS_VariableExists($VariableID) ? IPS_GetVariable($VariableID)['VariableType'] : null;
+        return [
+            'ValueBool' => $needsValue && $type === VARIABLETYPE_BOOLEAN,
+            'Value'     => $needsValue && $type !== null && $type !== VARIABLETYPE_BOOLEAN,
+            'ValueHint' => $needsValue && $type === null,
+            'caption'   => $this->Translate($type === VARIABLETYPE_STRING ? 'Value (text)' : 'Value (number)')
+        ];
     }
 
     /**
@@ -604,10 +607,21 @@ class CameraArchiveCamera extends IPSModuleStrict
         return match ($Trigger['Condition']) {
             self::CONDITION_CHANGE      => $Changed,
             self::CONDITION_UPDATE      => true,
-            self::CONDITION_CHANGE_TO   => $Changed && $this->ValueEquals($Trigger['Value'], $Value, $Type),
-            self::CONDITION_UPDATE_WITH => $this->ValueEquals($Trigger['Value'], $Value, $Type),
+            self::CONDITION_CHANGE_TO   => $Changed && $this->ValueEquals($this->GetExpectedValue($Trigger, $Type), $Value, $Type),
+            self::CONDITION_UPDATE_WITH => $this->ValueEquals($this->GetExpectedValue($Trigger, $Type), $Value, $Type),
             default                     => false
         };
+    }
+
+    /**
+     * Booleans use the selection "ValueBool"; rows of former versions without it have the value in "Value".
+     */
+    private function GetExpectedValue(array $Trigger, int $Type): string
+    {
+        if ($Type === VARIABLETYPE_BOOLEAN && $Trigger['ValueBool'] !== '') {
+            return $Trigger['ValueBool'];
+        }
+        return $Trigger['Value'];
     }
 
     /**

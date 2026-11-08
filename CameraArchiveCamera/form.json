@@ -123,6 +123,14 @@
                     "add": "",
                     "visible": false,
                     "save": true
+                },
+                {
+                    "caption": "Value",
+                    "name": "ValueBool",
+                    "width": "0px",
+                    "add": "true",
+                    "visible": false,
+                    "save": true
                 }
             ],
             "values": []

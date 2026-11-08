@@ -43,7 +43,7 @@ Zielplattform: SymBox (Flash schonen, RAM knapp: 1–2 GB).
 
 Liste in der Konfiguration; je Eintrag:
 - Variable (Klingel, Reed-Kontakt, Bewegungsmelder …)
-- Bedingung: jede Änderung / jede Aktualisierung / wechselt auf Wert X / wird mit Wert X aktualisiert (X: Auswahl wahr/falsch bei Bool-Variablen, sonst Textfeld für Zahl oder Text; SelectValue ließ den Dialog in der Konsole nicht laden)
+- Bedingung: jede Änderung / jede Aktualisierung / wechselt auf Wert X / wird mit Wert X aktualisiert (X: Auswahl wahr/falsch bei Bool-Variablen, gespeichert in `ValueBool`, sonst Textfeld für Zahl oder Text in `Value`; der Dialog blendet das passende Feld ein. SelectValue ließ den Dialog in der Konsole nicht laden)
 - gilt für die Kamera-Instanz, in der er eingetragen ist (mehrere Kameras: Auslöser in jeder Kamera eintragen)
 - Verzögerung in Sekunden (z. B. Reed-Kontakt Tür 2 s, damit die Tür ganz offen ist; Klingel 0–1 s)
 - Sperrzeit in Sekunden (gegen Dauerauslösen durch Bewegungsmelder)
