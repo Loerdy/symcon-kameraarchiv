@@ -47,6 +47,8 @@ class CameraArchiveConsole extends IPSModuleStrict
     // Buffers cannot hold images: the kernel keeps only the last 512 KiB of a buffer and clears all buffers of an
     // instance above 1 MiB (see SymconStubs).
     private const UPLOAD_TIMER = 'ProcessUploads';
+    // One-time timer after ApplyChanges for the steps that talk to the cameras (no data flow in ApplyChanges)
+    private const SYNC_TIMER = 'Synchronize';
     private const UPLOAD_QUEUE_BUFFER = 'UploadQueue';
     private const UPLOAD_SLOT_PREFIX = 'NAS_';
     private const UPLOAD_LOCK_TIMEOUT = 2000;
@@ -84,6 +86,7 @@ class CameraArchiveConsole extends IPSModuleStrict
 
         // Only active while uploads are waiting
         $this->RegisterTimer(self::UPLOAD_TIMER, 0, 'IPS_RequestAction($_IPS[\'TARGET\'], \'' . self::UPLOAD_TIMER . '\', 0);');
+        $this->RegisterTimer(self::SYNC_TIMER, 0, 'IPS_RequestAction($_IPS[\'TARGET\'], \'' . self::SYNC_TIMER . '\', 0);');
 
         $this->SetVisualizationType(INSTANCE_VISUALIZATION_TYPE_HTML);
     }
@@ -115,10 +118,9 @@ class CameraArchiveConsole extends IPSModuleStrict
 
         $this->RegisterMessage(0, IPS_KERNELSTARTED);
         if (IPS_GetKernelRunlevel() === KR_READY) {
-            // The cameras apply the cache option to their media; at startup they ask for it themselves
-            $this->SendToChildren(['Command' => 'Settings', 'MemoryCache' => $this->ReadPropertyBoolean('MemoryCache')]);
             $this->ClearUnusedUploadSlots();
-            $this->UpdateTile();
+            // No data flow in ApplyChanges (best practice): settings and tile follow in the one-time timer
+            $this->SetTimerInterval(self::SYNC_TIMER, 1);
         }
 
         // No network access here: ApplyChanges also runs during startup and must not block.
@@ -163,6 +165,13 @@ class CameraArchiveConsole extends IPSModuleStrict
     {
         if ($Ident === self::UPLOAD_TIMER) {
             $this->ProcessUploads();
+            return;
+        }
+        if ($Ident === self::SYNC_TIMER) {
+            $this->SetTimerInterval(self::SYNC_TIMER, 0);
+            // The cameras apply the cache option to their media; at startup they ask for it themselves
+            $this->SendToChildren(['Command' => 'Settings', 'MemoryCache' => $this->ReadPropertyBoolean('MemoryCache')]);
+            $this->UpdateTile();
             return;
         }
         if ($Ident === 'ArchiveList') {

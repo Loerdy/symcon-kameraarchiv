@@ -2,8 +2,6 @@
 
 Eine Kamera der UniFi-Protect-Konsole: nimmt per Auslöser oder manuell Snapshots auf, speichert die neuesten Bilder als Medienobjekte unterhalb der Instanz und zeigt sie in einer Kachel an.
 
-> Status: in Entwicklung.
-
 ### Inhaltsverzeichnis
 
 1. [Funktionsumfang](#1-funktionsumfang)
@@ -148,4 +146,4 @@ Löscht alle gespeicherten Bilder der Kamera, auch die als „Behalten“ markie
 Beispiel:
 `CAR_DeleteImages(12345);`
 
-Die Funktionen `CAR_UITestSnapshot`, `CAR_UIDeleteImages`, `CAR_UITriggerForm` und `CAR_UITriggerUpdate` dienen dem Konfigurationsformular und sind nicht für Skripte gedacht.
+Die Funktionen `CAR_UITestSnapshot`, `CAR_UIDeleteImages`, `CAR_UITriggerForm`, `CAR_UITriggerUpdate`, `CAR_UINotificationForm` und `CAR_UINotificationUpdate` dienen dem Konfigurationsformular und sind nicht für Skripte gedacht.

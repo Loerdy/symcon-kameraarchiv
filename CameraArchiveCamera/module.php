@@ -43,6 +43,8 @@ class CameraArchiveCamera extends IPSModuleStrict
     private const QUEUE_TIMER = 'ProcessQueue';
     private const QUEUE_BUFFER = 'TriggerState';
     private const QUEUE_LOCK_TIMEOUT = 2000;
+    // One-time timer after ApplyChanges for the steps that talk to the console (no data flow in ApplyChanges)
+    private const SYNC_TIMER = 'Synchronize';
 
     // Images are delivered by the WebHook of the instance. WebHooks are reachable without authentication
     // (also via Connect), so every request needs the random token that only the tiles know.
@@ -90,6 +92,7 @@ class CameraArchiveCamera extends IPSModuleStrict
 
         // A single timer, always set to the next due snapshot of the queue (no polling)
         $this->RegisterTimer(self::QUEUE_TIMER, 0, 'IPS_RequestAction($_IPS[\'TARGET\'], \'' . self::QUEUE_TIMER . '\', 0);');
+        $this->RegisterTimer(self::SYNC_TIMER, 0, 'IPS_RequestAction($_IPS[\'TARGET\'], \'' . self::SYNC_TIMER . '\', 0);');
 
         $this->SetVisualizationType(INSTANCE_VISUALIZATION_TYPE_HTML);
         // The hook is volatile and registered again on every start (see RegisterHook in the SDK documentation)
@@ -121,6 +124,11 @@ class CameraArchiveCamera extends IPSModuleStrict
     {
         if ($Ident === self::QUEUE_TIMER) {
             $this->ProcessQueue();
+            return;
+        }
+        if ($Ident === self::SYNC_TIMER) {
+            $this->SetTimerInterval(self::SYNC_TIMER, 0);
+            $this->Synchronize();
             return;
         }
         if (in_array($Ident, self::TILE_ACTIONS, true)) {
@@ -186,11 +194,14 @@ class CameraArchiveCamera extends IPSModuleStrict
         $this->RegisterMessage($this->InstanceID, FM_CONNECT);
         $this->RegisterMessage($this->InstanceID, FM_DISCONNECT);
 
-        // Objects and other instances are only touched once the kernel is ready (best practice),
-        // otherwise IPS_KERNELSTARTED does it
+        // Objects are only touched once the kernel is ready (best practice), otherwise IPS_KERNELSTARTED does it.
+        // The console is not asked here: ApplyChanges must not use the data flow (best practice), the one-time
+        // timer does it right afterwards.
         $this->RegisterMessage(0, IPS_KERNELSTARTED);
         if (IPS_GetKernelRunlevel() === KR_READY) {
-            $this->Initialize();
+            $this->TrimImages();
+            $this->InitTriggerState();
+            $this->SetTimerInterval(self::SYNC_TIMER, 1);
         }
 
         // No network access here: ApplyChanges also runs during startup and must not block.
@@ -410,13 +421,20 @@ class CameraArchiveCamera extends IPSModuleStrict
      */
     private function Initialize(): void
     {
+        $this->TrimImages();
+        $this->InitTriggerState();
+        $this->Synchronize();
+    }
+
+    /**
+     * Steps that use the console: cache mode of the media and the tiles (image count or name may have changed).
+     */
+    private function Synchronize(): void
+    {
         $cached = $this->GetMemoryCacheSetting();
         if ($cached !== null) {
             $this->ApplyCacheMode($cached);
         }
-        $this->TrimImages();
-        $this->InitTriggerState();
-        // Image count or name may have changed
         $this->UpdateTile();
     }
 

@@ -2,8 +2,6 @@
 
 Verbindung zur UniFi-Protect-Konsole. Die Kamera-Instanzen holen ihre Snapshots über diese Instanz. Ihre Kachel zeigt alle verbundenen Kameras auf einen Blick.
 
-> Status: in Entwicklung.
-
 ### Inhaltsverzeichnis
 
 1. [Funktionsumfang](#1-funktionsumfang)
@@ -106,4 +104,4 @@ Die Bedienung (Archivleiste, Filter, Vollbild, Aktionen, NAS-Archiv) ist in der 
 
 ### 7. PHP-Befehlsreferenz
 
-Das Modul bietet keine Funktionen für Skripte. `CARC_UITestConnection` dient dem Konfigurationsformular.
+Das Modul bietet keine Funktionen für Skripte. `CARC_UITestConnection` und `CARC_UITestNAS` dienen dem Konfigurationsformular.

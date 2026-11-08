@@ -6,7 +6,9 @@
   </php>
   <source>
     <include>
-      <directory suffix=".php">../CameraArchive</directory>
+      <directory suffix=".php">../CameraArchiveCamera</directory>
+      <directory suffix=".php">../CameraArchiveConfigurator</directory>
+      <directory suffix=".php">../CameraArchiveConsole</directory>
     </include>
   </source>
 </phpunit>

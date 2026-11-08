@@ -6,9 +6,13 @@ Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-11-08
+
+Erste Veröffentlichung.
+
 ### Hinzugefügt
 
-- **Drei Module** statt einer einzelnen Instanz für alle Kameras:
+- **Drei Module:**
   - **Kamera-Archiv Konsole** (Präfix `CARC`): Verbindung zur UniFi-Protect-Konsole (Hostname, IPv4 oder IPv6), API-Key, Option „Zertifikat nicht prüfen“, Verkleinerung und In-Memory-Cache für alle Kameras. „Verbindung testen“ meldet das Ergebnis und setzt den Status (nicht erreichbar, Zertifikatsfehler, API-Key ungültig, unerwartete Antwort).
   - **Kamera-Archiv Konfigurator** (Präfix `CARK`): listet die Kameras der Konsole und legt je Kamera eine Instanz an. Drittanbieter-Kameras ohne Snapshot über Protect werden gekennzeichnet und nicht angelegt.
   - **Kamera-Archiv Kamera** (Präfix `CAR`): eine Instanz je Kamera mit eigenen Auslösern, eigenen Bildern unterhalb der Instanz und eigener Kachel.
@@ -27,3 +31,6 @@ Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 - **Benachrichtigungen** je Kamera nach jedem gespeicherten Snapshot eines Auslösers: E-Mail mit dem Bild als Anhang (SMTP-Instanz, optional eigener Empfänger) oder Push-Nachricht der Kachel-Visualisierung. Je Zeile wählbar: Auslöser (oder alle) und eine optionale Bedingung aus Variable und Wert, z. B. nur bei Abwesenheit.
 - **NAS per WebDAV:** Die Konsole lädt das Original jedes Snapshots in voller Auflösung hoch (`<Kamera>/<Datum>/<Uhrzeit>_<Auslöser>.jpg`), je Kamera einschaltbar mit eigenem Ordner und Aufbewahrung in Tagen. Warteschlange im Arbeitsspeicher mit erneuten Versuchen, wenn das NAS nicht erreichbar ist, tägliches Löschen alter Tagesordner, Kopie „behaltener“ Bilder in einen Ordner, der nie gelöscht wird. Button „NAS-Verbindung testen“.
 - **NAS-Archiv in der Kachel:** Bei eingeschaltetem NAS-Upload wechselt die Taste „Archiv“ zu den Bildern auf dem NAS, mit Auswahl des Tages, Vorschaubildern (beim Upload als 320 px breite Kopie in `thumbs` abgelegt), Filter nach Auslöser, Vollbild und Download.
+
+[Unreleased]: https://github.com/Loerdy/symcon-kameraarchiv/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/Loerdy/symcon-kameraarchiv/releases/tag/v1.0.0

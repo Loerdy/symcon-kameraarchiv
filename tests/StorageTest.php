@@ -87,9 +87,15 @@ class StorageTest extends TestCase
         $slotID = IPS_GetObjectIDByIdent('IMG_001', $id);
         $indexID = IPS_GetObjectIDByIdent('ImageIndex', $id);
 
-        // Switched off in the console: existing media are no longer cached, new media are created without cache
+        // Switched off in the console: existing media are no longer cached, new media are created without cache.
+        // ApplyChanges uses no data flow (best practice): the console informs the cameras in its one-time timer.
+        $consoleModule = IPS\InstanceManager::getInstanceInterface($console);
         IPS_SetProperty($console, 'MemoryCache', false);
         IPS_ApplyChanges($console);
+        $this->assertTrue(IPS_GetMedia($slotID)['MediaIsCached']);
+        $this->assertSame(1, (new ReflectionMethod($consoleModule, 'GetTimerInterval'))->invoke($consoleModule, 'Synchronize'));
+        $consoleModule->RequestAction('Synchronize', 0);
+        $this->assertSame(0, (new ReflectionMethod($consoleModule, 'GetTimerInterval'))->invoke($consoleModule, 'Synchronize'));
         $this->assertFalse(IPS_GetMedia($slotID)['MediaIsCached']);
         $this->assertFalse(IPS_GetMedia($indexID)['MediaIsCached']);
         $this->store($module, $this->jpeg(2), false);
@@ -99,8 +105,10 @@ class StorageTest extends TestCase
         // Switched on again: all media are cached, also when the camera starts and asks the console
         IPS_SetProperty($console, 'MemoryCache', true);
         IPS_ApplyChanges($console);
+        $consoleModule->RequestAction('Synchronize', 0);
         IPS_SetMediaCached($slotID, false);
         IPS_ApplyChanges($id);
+        $module->RequestAction('Synchronize', 0);
         foreach (['IMG_001', 'IMG_002', 'ImageIndex'] as $ident) {
             $this->assertTrue(IPS_GetMedia(IPS_GetObjectIDByIdent($ident, $id))['MediaIsCached'], $ident);
         }
