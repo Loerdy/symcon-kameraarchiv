@@ -127,6 +127,10 @@ class CameraArchiveCamera extends IPSModuleStrict
             $this->HandleTileAction($Ident, $Value);
             return;
         }
+        if ($Ident === 'ArchiveList') {
+            $this->HandleArchiveList($Value);
+            return;
+        }
         throw new Exception(sprintf('Invalid ident %s', $Ident));
     }
 
@@ -150,6 +154,12 @@ class CameraArchiveCamera extends IPSModuleStrict
             case 'Settings':
                 if (is_bool($request['MemoryCache'] ?? null)) {
                     $this->ApplyCacheMode($request['MemoryCache']);
+                }
+                return '';
+            case 'GetArchiveFolder':
+                // Overview tile of the console: folder of this camera on the NAS, only if the upload is enabled
+                if (($request['InstanceID'] ?? null) === $this->InstanceID && $this->ReadPropertyBoolean('NASUpload')) {
+                    return (string) json_encode(['folder' => $this->GetNASFolder()]);
                 }
                 return '';
             case 'TileAction':
@@ -358,6 +368,10 @@ class CameraArchiveCamera extends IPSModuleStrict
             $this->SendHookError(403, 'Forbidden');
             return;
         }
+        if (($_GET['archive'] ?? null) === '1') {
+            $this->DeliverArchiveImage();
+            return;
+        }
 
         $slot = filter_var($_GET['slot'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => self::IMAGES_MAX]]);
         $seq = filter_var($_GET['seq'] ?? null, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1]]);
@@ -481,10 +495,9 @@ class CameraArchiveCamera extends IPSModuleStrict
         }
         $request = ['Command' => 'Snapshot', 'CameraID' => $cameraID];
         if ($this->ReadPropertyBoolean('NASUpload')) {
-            // The console uploads the original; folder: own setting, otherwise the name of the instance
-            $folder = trim($this->ReadPropertyString('NASFolder'));
+            // The console uploads the original
             $request['NAS'] = [
-                'folder'    => $folder !== '' ? $folder : IPS_GetName($this->InstanceID),
+                'folder'    => $this->GetNASFolder(),
                 'trigger'   => $Trigger,
                 'retention' => max(0, min(self::NAS_RETENTION_MAX, $this->ReadPropertyInteger('NASRetention')))
             ];
@@ -1656,6 +1669,78 @@ class CameraArchiveCamera extends IPSModuleStrict
     }
 
     /**
+     * Folder of this camera on the NAS: own setting, otherwise the name of the instance.
+     */
+    private function GetNASFolder(): string
+    {
+        $folder = trim($this->ReadPropertyString('NASFolder'));
+        return $folder !== '' ? $folder : IPS_GetName($this->InstanceID);
+    }
+
+    /**
+     * "Archive" in the tile: days or images of a day from the NAS. The answer goes to the open tiles of this
+     * instance; the request ID lets the tile ignore answers to requests of other viewers.
+     */
+    private function HandleArchiveList(mixed $Value): void
+    {
+        $data = is_string($Value) ? json_decode($Value, true) : null;
+        $request = is_array($data) && is_string($data['request'] ?? null) ? substr($data['request'], 0, 64) : '';
+        $date = is_array($data) && is_string($data['date'] ?? null) ? $data['date'] : '';
+        if ($request === '') {
+            $this->SendDebug('Tile', 'ArchiveList: invalid value', 0);
+            return;
+        }
+        if (!$this->ReadPropertyBoolean('NASUpload') || !$this->HasConsole()) {
+            $result = ['ok' => false, 'message' => $this->Translate('NAS upload is not enabled for this camera'), 'items' => []];
+        } else {
+            $result = $this->SendToConsole(['Command' => 'NASList', 'Folder' => $this->GetNASFolder(), 'Date' => $date]);
+        }
+        $this->UpdateVisualizationValue((string) json_encode(['archive' => [
+            'request' => $request,
+            'camera'  => $this->InstanceID,
+            'date'    => $date,
+            'ok'      => $result['ok'],
+            'message' => $result['message'],
+            'items'   => is_array($result['items'] ?? null) ? $result['items'] : []
+        ]], JSON_INVALID_UTF8_SUBSTITUTE));
+    }
+
+    /**
+     * WebHook: one image of the NAS archive (parameters date, file, optional thumb and download). The console
+     * checks date and file name again and only reads below the folder of this camera.
+     */
+    private function DeliverArchiveImage(): void
+    {
+        $date = $_GET['date'] ?? null;
+        $file = $_GET['file'] ?? null;
+        if (!is_string($date) || !is_string($file) || preg_match('/^\d{4}-\d{2}-\d{2}$/', $date) !== 1
+            || preg_match('/^(\d{2})(\d{2})(\d{2})_[^\/\\\\]+\.jpg$/u', $file, $match) !== 1) {
+            $this->SendHookError(400, 'Bad Request');
+            return;
+        }
+        if (!$this->ReadPropertyBoolean('NASUpload') || !$this->HasConsole()) {
+            $this->SendHookError(404, 'Not Found');
+            return;
+        }
+        $result = $this->SendToConsole(['Command' => 'NASGet', 'Folder' => $this->GetNASFolder(), 'Date' => $date, 'File' => $file, 'Thumb' => ($_GET['thumb'] ?? null) === '1']);
+        $data = $result['ok'] && is_string($result['image'] ?? null) ? base64_decode($result['image'], true) : false;
+        if (!is_string($data) || $data === '') {
+            $this->SendDebug('Hook', sprintf('Archive %s/%s: %s', $date, $file, $result['message']), 0);
+            $this->SendHookError(404, 'Not Found');
+            return;
+        }
+        header('Content-Type: image/jpeg');
+        // Archive files never change, so the browser may keep them
+        header('Cache-Control: private, max-age=86400');
+        header('X-Content-Type-Options: nosniff');
+        if (($_GET['download'] ?? null) === '1') {
+            [$year, $month, $day] = array_map('intval', explode('-', $date));
+            header('Content-Disposition: ' . $this->GetDownloadDisposition((int) mktime((int) $match[1], (int) $match[2], (int) $match[3], $month, $day, $year)));
+        }
+        echo $data;
+    }
+
+    /**
      * Content-Disposition for a download: name of the instance and time, e.g. "Haustür_2026-11-08_143005.jpg".
      * The plain filename is ASCII only (for old clients), filename* carries the UTF-8 name.
      */
@@ -1720,6 +1805,8 @@ class CameraArchiveCamera extends IPSModuleStrict
             'token'        => $this->ReadAttributeString(self::TOKEN_ATTRIBUTE),
             'images'       => $images,
             'indexDamaged' => $index === null,
+            // The tile offers the archive on the NAS
+            'nas'          => $this->ReadPropertyBoolean('NASUpload'),
             'notice'       => $this->GetTileNotice()
         ];
     }

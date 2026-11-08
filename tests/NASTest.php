@@ -224,6 +224,73 @@ class NASTest extends TestCase
         $this->assertStringEndsWith('_Big2.jpg', end($queue)['path']);
     }
 
+    public function testArchiveListsDaysAndFiles(): void
+    {
+        $this->configure();
+        $this->createArchive();
+
+        $days = $this->listArchive('Haustür', '');
+        $this->assertTrue($days['ok']);
+        $this->assertSame(['2026-11-08', '2026-11-07'], $days['items']);
+
+        $files = $this->listArchive('Haustür', '2026-11-07');
+        $this->assertTrue($files['ok']);
+        $this->assertSame(['101500_Klingel.jpg', '093000_Tür.jpg'], array_column($files['items'], 'file'));
+        $this->assertSame(['Klingel', 'Tür'], array_column($files['items'], 'trigger'));
+        $this->assertSame(mktime(10, 15, 0, 11, 7, 2026), $files['items'][0]['time']);
+
+        // Camera without images on the NAS yet
+        $this->assertSame(['ok' => true, 'message' => '', 'items' => []], $this->listArchive('Garten', ''));
+        $this->assertFalse($this->listArchive('Haustür', '../2026-11-07')['ok']);
+    }
+
+    public function testArchiveImageUsesThumbnailOrOriginal(): void
+    {
+        $this->configure();
+        $this->createArchive();
+        $get = new ReflectionMethod($this->module, 'GetArchiveImage');
+
+        $this->assertSame("\xFF\xD8thumb", base64_decode($get->invoke($this->module, 'Haustür', '2026-11-07', '101500_Klingel.jpg', true)['image']));
+        $this->assertSame("\xFF\xD8original", base64_decode($get->invoke($this->module, 'Haustür', '2026-11-07', '101500_Klingel.jpg', false)['image']));
+        // No thumbnail (e.g. uploaded without GD): the original is delivered
+        $this->assertSame("\xFF\xD8door", base64_decode($get->invoke($this->module, 'Haustür', '2026-11-07', '093000_Tür.jpg', true)['image']));
+        foreach ([['2026-11-07', '../101500_Klingel.jpg'], ['2026-11-07', 'notes.txt'], ['../x', '101500_Klingel.jpg'], ['2026-11-07', '120000_Missing.jpg']] as [$date, $file]) {
+            $this->assertFalse($get->invoke($this->module, 'Haustür', $date, $file, false)['ok'], $file);
+        }
+    }
+
+    public function testCameraHookDeliversArchiveImage(): void
+    {
+        $this->configure();
+        $this->createArchive();
+        [$camera, $cameraModule] = $this->createCamera(true);
+        $token = (new ReflectionMethod($cameraModule, 'ReadAttributeString'))->invoke($cameraModule, 'HookToken');
+
+        $request = ['token' => $token, 'archive' => '1', 'date' => '2026-11-07', 'file' => '101500_Klingel.jpg'];
+        $this->assertSame("\xFF\xD8thumb", $this->hook($cameraModule, $request + ['thumb' => '1']));
+        $this->assertSame("\xFF\xD8original", $this->hook($cameraModule, $request + ['download' => '1']));
+        $this->assertSame('Bad Request', $this->hook($cameraModule, ['file' => '../../secret.jpg'] + $request));
+        $this->assertSame('Bad Request', $this->hook($cameraModule, ['date' => '2026-11-07/..'] + $request));
+        $this->assertSame('Forbidden', $this->hook($cameraModule, ['token' => 'x'] + $request));
+
+        // Upload switched off: no archive
+        IPS_SetProperty($camera, 'NASUpload', false);
+        IPS_ApplyChanges($camera);
+        $this->assertSame('Not Found', $this->hook($cameraModule, $request));
+        $this->assertFalse((new ReflectionMethod($cameraModule, 'BuildCameraState'))->invoke($cameraModule)['nas']);
+    }
+
+    public function testOverviewAsksCameraForItsFolder(): void
+    {
+        $this->configure();
+        [$door] = $this->createCamera(true);
+        [$garden] = $this->createCamera(false);
+        $send = new ReflectionMethod($this->module, 'SendToChildren');
+
+        $this->assertSame([['folder' => 'Haustür']], $send->invoke($this->module, ['Command' => 'GetArchiveFolder', 'InstanceID' => $door]));
+        $this->assertSame([], $send->invoke($this->module, ['Command' => 'GetArchiveFolder', 'InstanceID' => $garden]));
+    }
+
     public function testUnusedSlotsAreEmptiedAfterRestart(): void
     {
         $this->configure('secret', 'http://127.0.0.1:1/archiv');
@@ -298,6 +365,42 @@ class NASTest extends TestCase
         IPS_SetProperty($this->console, 'NASUser', 'cam');
         IPS_SetProperty($this->console, 'NASPassword', $Password);
         IPS_ApplyChanges($this->console);
+    }
+
+    private function createArchive(): void
+    {
+        foreach (['Haustür', 'Haustür/2026-11-07', 'Haustür/2026-11-07/thumbs', 'Haustür/2026-11-08', 'Haustür/Behalten'] as $folder) {
+            mkdir(self::$root . '/' . $folder);
+        }
+        file_put_contents(self::$root . '/Haustür/2026-11-07/101500_Klingel.jpg', "\xFF\xD8original");
+        file_put_contents(self::$root . '/Haustür/2026-11-07/thumbs/101500_Klingel.jpg', "\xFF\xD8thumb");
+        file_put_contents(self::$root . '/Haustür/2026-11-07/093000_Tür.jpg', "\xFF\xD8door");
+        file_put_contents(self::$root . '/Haustür/2026-11-07/notes.txt', 'x');
+    }
+
+    private function createCamera(bool $Upload): array
+    {
+        $camera = IPS_CreateInstance(self::CAMERA);
+        IPS_SetProperty($camera, 'CameraID', '653fd7e100601403e40003f3');
+        IPS_SetProperty($camera, 'NASUpload', $Upload);
+        IPS_SetProperty($camera, 'NASFolder', 'Haustür');
+        IPS_ConnectInstance($camera, $this->console);
+        IPS_ApplyChanges($camera);
+        return [$camera, IPS\InstanceManager::getInstanceInterface($camera)];
+    }
+
+    private function listArchive(string $Folder, string $Date): array
+    {
+        return (new ReflectionMethod($this->module, 'ListArchive'))->invoke($this->module, $Folder, $Date);
+    }
+
+    private function hook(object $Module, array $Get): string
+    {
+        $_GET = $Get;
+        ob_start();
+        (new ReflectionMethod($Module, 'ProcessHookData'))->invoke($Module);
+        $_GET = [];
+        return (string) ob_get_clean();
     }
 
     private function queueUpload(string $Folder, string $Trigger, string $Data, int $Retention = 30): string

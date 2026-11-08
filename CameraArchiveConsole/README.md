@@ -2,7 +2,7 @@
 
 Verbindung zur UniFi-Protect-Konsole. Die Kamera-Instanzen holen ihre Snapshots über diese Instanz. Ihre Kachel zeigt alle verbundenen Kameras auf einen Blick.
 
-> Status: in Entwicklung. Das Blättern im NAS-Archiv in der Kachel folgt.
+> Status: in Entwicklung.
 
 ### Inhaltsverzeichnis
 
@@ -67,6 +67,7 @@ Einrichtung auf einer Synology: Paket „WebDAV Server“ installieren und HTTPS
 
 * Abgelegt wird das Original in voller Auflösung, vor dem Verkleinern: `<Archivordner>/<Kameraordner>/<JJJJ-MM-TT>/<HHMMSS>_<Auslöser>.jpg`. Umlaute bleiben erhalten, Zeichen wie `/` oder `:` werden durch `_` ersetzt.
 * Die Uploads laufen über eine Warteschlange. Die wartenden Originale liegen in Medienobjekten „NAS-Upload 01“ … „NAS-Upload 30“ unterhalb der Konsole (Ident `NAS_<Nr>`, versteckt). Sie werden wie die Kamerabilder nach der Option „In-Memory-Cache verwenden“ im Arbeitsspeicher gehalten und nach dem Upload geleert. Ist das NAS nicht erreichbar, bleiben die Bilder dort und werden später erneut versucht (nach 1, 2, 5, 10, dann alle 30 Minuten). Es warten höchstens 30 Bilder bzw. 25 MB; danach entfallen die ältesten. Bei einem Neustart von Symcon gehen noch nicht hochgeladene Bilder verloren.
+* Nach dem Original lädt die Konsole ein Vorschaubild (320 px breit) in den Unterordner `thumbs` des Tagesordners. Die Kachel nutzt es im Archiv; ohne GD oder bei älteren Bildern ohne Vorschau zeigt sie das Original.
 * Nach jedem Upload vergleicht das Modul die Dateigröße auf dem NAS mit dem Original. Weicht sie ab, gilt der Upload als fehlgeschlagen und wird wiederholt.
 * Ein Fehler wird einmal im Meldungsfenster gemeldet, ebenso, wenn das NAS wieder erreichbar ist. Der aktuelle Stand steht im Formular unter „NAS: … wartend“.
 * Einmal täglich, nachdem alle Bilder hochgeladen sind, löscht das Modul je Kamera die Tagesordner, die älter als die eingestellte Aufbewahrung sind. Andere Ordner und Dateien werden nicht angefasst.
@@ -101,7 +102,7 @@ Das Modul legt keine Statusvariablen und keine Profile an.
 
 Die Kachel der Konsole zeigt alle verbundenen Kameras. Sie sieht aus wie die Kachel einer Kamera, hat aber oben eine Leiste mit einem Button je Kamera. Der Button trägt den Namen der Kamera-Instanz. Zum Umbenennen eines Buttons wird also die Kamera-Instanz umbenannt. Die Reihenfolge folgt der Position der Kamera-Instanzen im Objektbaum, danach dem Namen.
 
-Die Bedienung (Archivleiste, Filter, Vollbild, Aktionen) ist in der [Beschreibung der Kamera](../CameraArchiveCamera/README.md#6-visualisierung) erklärt.
+Die Bedienung (Archivleiste, Filter, Vollbild, Aktionen, NAS-Archiv) ist in der [Beschreibung der Kamera](../CameraArchiveCamera/README.md#6-visualisierung) erklärt.
 
 ### 7. PHP-Befehlsreferenz
 

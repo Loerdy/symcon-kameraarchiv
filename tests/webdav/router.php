@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-// Minimal WebDAV server for the tests (PHP built-in web server): MKCOL, PUT, COPY, PROPFIND, DELETE below /archiv,
+// Minimal WebDAV server for the tests (PHP built-in web server): MKCOL, PUT, GET, HEAD, COPY, PROPFIND, DELETE below /archiv,
 // basic authentication with user "cam" and password "secret". The files lie in the directory WEBDAV_ROOT.
 
 $root = rtrim((string) getenv('WEBDAV_ROOT'), '/\\');
@@ -60,6 +60,14 @@ switch ($_SERVER['REQUEST_METHOD']) {
         }
         file_put_contents($file, $data);
         http_response_code($existed ? 204 : 201);
+        break;
+    case 'GET':
+        if (!is_file($file)) {
+            http_response_code(404);
+            break;
+        }
+        header('Content-Type: image/jpeg');
+        readfile($file);
         break;
     case 'HEAD':
         if (!is_file($file)) {

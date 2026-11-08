@@ -195,7 +195,35 @@
         font: inherit;
     }
 
+    #dateSelect {
+        flex: none;
+        max-width: 35%;
+        border: none;
+        border-radius: 6px;
+        background: var(--surface);
+        color: inherit;
+        font: inherit;
+    }
+
+    .mode {
+        flex: none;
+        padding: 0 10px;
+        border: none;
+        border-radius: 6px;
+        background: var(--surface);
+        color: inherit;
+        font: inherit;
+        cursor: pointer;
+    }
+
+    /* Fixed colors: white on the accent color is readable in every design */
+    .mode.on {
+        background: var(--accent);
+        color: #ffffff;
+    }
+
     /* The option list is drawn by the system: fixed colors so that it stays readable */
+    #dateSelect option,
     #filter option {
         background: #ffffff;
         color: #1f1f1f;
@@ -338,6 +366,8 @@
         <div id="notice" class="hidden"></div>
     </div>
     <div id="bar">
+        <button id="modeToggle" class="mode hidden" type="button"></button>
+        <select id="dateSelect" class="hidden"></select>
         <select id="filter"></select>
         <div id="strip" class="scroller"></div>
     </div>
@@ -365,7 +395,12 @@
     // "overview" is true for the tile of the console that shows all cameras.
     const tile = { cameras: [], overview: false };
     // Selected camera, selected image (null: always show the newest), trigger filter ('' = all), enlarged view
-    const view = { camera: null, seq: null, filter: '', viewer: false, fullscreen: false };
+    // "mode": 'latest' shows the images in RAM, 'archive' the images of one day on the NAS
+    const view = { camera: null, seq: null, filter: '', viewer: false, fullscreen: false, mode: 'latest' };
+    // Archive of the selected camera: days with images, selected day and its images. Every request has its own ID;
+    // answers to other requests (e.g. of another viewer of the same instance) are ignored.
+    const archive = { camera: null, days: [], date: '', files: [], loading: false, error: '', request: '', timer: null, counter: 0 };
+    const ARCHIVE_TIMEOUT_MS = 20000;
     // Actions: snapshot requested per camera (newest sequence number at the request), delete waiting for the
     // second tap, notices already shown per camera
     const actions = { busy: {}, confirm: null, confirmTimer: null, notices: {}, noticeTimer: null };
@@ -386,6 +421,10 @@
             }
         }
         if (data === null || typeof data !== 'object') {
+            return;
+        }
+        if (data.archive) {
+            handleArchive(data.archive);
             return;
         }
         tile.cameras = Array.isArray(data.cameras) ? data.cameras : [];
@@ -428,9 +467,83 @@
         requestAction(ident, JSON.stringify(Object.assign({ camera: camera.id }, values)));
     }
 
-    function imageUrl(camera, image) {
-        const query = new URLSearchParams({ token: camera.token, slot: image.slot, seq: image.seq });
-        return camera.hook + '?' + query.toString();
+    // Images in RAM by slot and sequence number, archive images by day and file name (thumb: preview)
+    function imageUrl(camera, image, thumb) {
+        const params = image.archive
+            ? { token: camera.token, archive: '1', date: image.date, file: image.file }
+            : { token: camera.token, slot: image.slot, seq: image.seq };
+        if (image.archive && thumb) {
+            params.thumb = '1';
+        }
+        return camera.hook + '?' + new URLSearchParams(params).toString();
+    }
+
+    function archiveImages(camera) {
+        if (archive.camera !== camera.id) {
+            return [];
+        }
+        return archive.files.map((entry) => ({
+            seq: 'a:' + archive.date + '/' + entry.file,
+            archive: true,
+            date: archive.date,
+            file: entry.file,
+            time: entry.time,
+            trigger: entry.trigger
+        }));
+    }
+
+    // Images of the current mode, newest first
+    function cameraImages(camera) {
+        return view.mode === 'archive' ? archiveImages(camera) : camera.images;
+    }
+
+    function requestArchive(camera, date) {
+        archive.counter++;
+        archive.request = 'r' + Date.now().toString(36) + archive.counter + Math.random().toString(36).slice(2, 6);
+        archive.camera = camera.id;
+        archive.loading = true;
+        archive.error = '';
+        archive.files = [];
+        if (date === '') {
+            archive.days = [];
+            archive.date = '';
+        }
+        clearTimeout(archive.timer);
+        archive.timer = setTimeout(() => {
+            if (archive.loading) {
+                archive.loading = false;
+                archive.error = text('No answer');
+                render();
+            }
+        }, ARCHIVE_TIMEOUT_MS);
+        sendAction('ArchiveList', camera, { request: archive.request, date: date });
+    }
+
+    // Answer of the module: days (request without date) or the images of a day
+    function handleArchive(answer) {
+        if (typeof answer.request !== 'string' || answer.request !== archive.request) {
+            return;
+        }
+        clearTimeout(archive.timer);
+        archive.loading = false;
+        if (answer.ok !== true) {
+            archive.error = typeof answer.message === 'string' ? answer.message : '';
+            render();
+            return;
+        }
+        const items = Array.isArray(answer.items) ? answer.items : [];
+        if (answer.date === '') {
+            archive.days = items.filter((day) => typeof day === 'string');
+            const camera = tile.cameras.find((entry) => entry.id === archive.camera);
+            if (archive.days.length > 0 && camera) {
+                archive.date = archive.days[0];
+                requestArchive(camera, archive.date);
+            }
+        } else {
+            archive.files = items.filter((entry) => entry && typeof entry.file === 'string'
+                && typeof entry.time === 'number' && typeof entry.trigger === 'string');
+        }
+        render();
     }
 
     function triggerLabel(trigger) {
@@ -493,6 +606,14 @@
                 view.camera = camera.id;
                 view.seq = null;
                 view.filter = '';
+                // The archive follows the selected camera
+                if (view.mode === 'archive') {
+                    if (camera.nas === true) {
+                        requestArchive(camera, '');
+                    } else {
+                        view.mode = 'latest';
+                    }
+                }
                 render();
             });
             chips.appendChild(chip);
@@ -500,8 +621,28 @@
         scrollToActive(chips);
     }
 
+    // Switch between the images in RAM and the archive; the day selection of the archive
+    function renderMode(camera) {
+        const toggle = document.getElementById('modeToggle');
+        toggle.classList.toggle('hidden', camera.nas !== true);
+        toggle.classList.toggle('on', view.mode === 'archive');
+        toggle.textContent = view.mode === 'archive' ? text('Latest') : text('Archive');
+        toggle.title = view.mode === 'archive' ? text('Back to the latest images') : text('Older images on the NAS');
+
+        const select = document.getElementById('dateSelect');
+        select.classList.toggle('hidden', view.mode !== 'archive' || archive.days.length === 0);
+        select.replaceChildren();
+        for (const day of archive.days) {
+            const option = document.createElement('option');
+            option.value = day;
+            option.textContent = new Date(day + 'T00:00:00').toLocaleDateString([], { weekday: 'short', day: '2-digit', month: '2-digit', year: 'numeric' });
+            select.appendChild(option);
+        }
+        select.value = archive.date;
+    }
+
     function renderFilter(camera) {
-        const triggers = [...new Set(camera.images.map((image) => image.trigger))];
+        const triggers = [...new Set(cameraImages(camera).map((image) => image.trigger))];
         if (!triggers.includes(view.filter)) {
             view.filter = '';
         }
@@ -536,7 +677,7 @@
             const picture = document.createElement('img');
             picture.loading = 'lazy';
             picture.alt = '';
-            picture.src = imageUrl(camera, image);
+            picture.src = imageUrl(camera, image, true);
             const label = document.createElement('span');
             label.textContent = formatTime(image.time, true);
             thumb.title = triggerLabel(image.trigger) + ' – ' + formatTime(image.time, false);
@@ -556,7 +697,7 @@
         if (!camera) {
             return { camera: null, images: [], selected: null };
         }
-        const images = camera.images.filter((image) => view.filter === '' || image.trigger === view.filter);
+        const images = cameraImages(camera).filter((image) => view.filter === '' || image.trigger === view.filter);
         let selected = images.find((image) => image.seq === view.seq);
         if (!selected) {
             view.seq = null;
@@ -582,16 +723,21 @@
             return;
         }
 
+        if (view.mode === 'archive' && camera.nas !== true) {
+            view.mode = 'latest';
+        }
+        renderMode(camera);
         renderFilter(camera);
         const { images, selected } = currentSelection();
 
-        bar.classList.toggle('hidden', camera.images.length === 0);
+        // The bar also carries the switch to the archive, so it stays visible without images in RAM
+        bar.classList.toggle('hidden', view.mode !== 'archive' && camera.images.length === 0 && camera.nas !== true);
         renderStrip(camera, images, selected);
         renderViewer();
         renderActions(camera, selected);
 
         if (!selected) {
-            showMessage(text(camera.indexDamaged ? 'The image index is damaged.' : 'No images yet'));
+            showMessage(emptyMessage(camera));
             return;
         }
 
@@ -613,7 +759,21 @@
         document.getElementById('badges').classList.remove('hidden');
     }
 
-    // Snapshot is always possible; keep, download and delete refer to the selected image
+    function emptyMessage(camera) {
+        if (view.mode !== 'archive') {
+            return text(camera.indexDamaged ? 'The image index is damaged.' : 'No images yet');
+        }
+        if (archive.loading) {
+            return text('Loading archive …');
+        }
+        if (archive.error !== '') {
+            return text('Archive not available') + ': ' + archive.error;
+        }
+        return text(archive.days.length === 0 ? 'No images on the NAS yet' : 'No images on this day');
+    }
+
+    // Snapshot is always possible; keep, download and delete refer to the selected image.
+    // Images of the archive can only be downloaded: the NAS already is the permanent storage.
     function renderActions(camera, selected) {
         document.getElementById('actions').classList.remove('hidden');
         const snapshot = document.getElementById('actionSnapshot');
@@ -624,10 +784,12 @@
         if (actions.confirm && (!selected || actions.confirm.camera !== camera.id || actions.confirm.seq !== selected.seq)) {
             resetConfirm();
         }
-        for (const id of ['actionKeep', 'actionDownload', 'actionDelete']) {
-            document.getElementById(id).classList.toggle('hidden', !selected);
+        const archived = Boolean(selected && selected.archive);
+        document.getElementById('actionDownload').classList.toggle('hidden', !selected);
+        for (const id of ['actionKeep', 'actionDelete']) {
+            document.getElementById(id).classList.toggle('hidden', !selected || archived);
         }
-        if (!selected) {
+        if (!selected || archived) {
             return;
         }
         const keep = document.getElementById('actionKeep');
@@ -655,6 +817,7 @@
         }, SNAPSHOT_BUSY_MS);
         actions.busy[camera.id] = { seq: newest, timer };
         // The new image is shown as soon as it arrives
+        view.mode = 'latest';
         view.seq = null;
         view.filter = '';
         sendAction('TileSnapshot', camera, {});
@@ -764,6 +927,35 @@
             render();
         }
     }
+
+    document.getElementById('modeToggle').addEventListener('click', () => {
+        const { camera } = currentSelection();
+        if (!camera) {
+            return;
+        }
+        resetConfirm();
+        view.seq = null;
+        view.filter = '';
+        if (view.mode === 'archive') {
+            view.mode = 'latest';
+        } else {
+            view.mode = 'archive';
+            requestArchive(camera, '');
+        }
+        render();
+    });
+
+    document.getElementById('dateSelect').addEventListener('change', (event) => {
+        const { camera } = currentSelection();
+        if (!camera) {
+            return;
+        }
+        archive.date = event.target.value;
+        view.seq = null;
+        view.filter = '';
+        requestArchive(camera, archive.date);
+        render();
+    });
 
     document.getElementById('filter').addEventListener('change', (event) => {
         view.filter = event.target.value;

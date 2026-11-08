@@ -2,7 +2,7 @@
 
 Eine Kamera der UniFi-Protect-Konsole: nimmt per Auslöser oder manuell Snapshots auf, speichert die neuesten Bilder als Medienobjekte unterhalb der Instanz und zeigt sie in einer Kachel an.
 
-> Status: in Entwicklung. Das Blättern im NAS-Archiv in der Kachel folgt.
+> Status: in Entwicklung.
 
 ### Inhaltsverzeichnis
 
@@ -21,7 +21,7 @@ Eine Kamera der UniFi-Protect-Konsole: nimmt per Auslöser oder manuell Snapshot
 * Ringpuffer der neuesten Bilder als Medienobjekte unterhalb der Instanz (Standard: 5 Bilder)
 * Optional Upload jedes Snapshots in voller Auflösung auf ein NAS (WebDAV) mit Aufbewahrungsdauer in Tagen
 * Benachrichtigung per E-Mail mit Bild oder per Push-Nachricht, je Auslöser und mit optionaler Bedingung (z. B. niemand zu Hause)
-* Kachel mit neuestem Bild, Archivleiste, Filter nach Auslöser und Vollbildansicht
+* Kachel mit neuestem Bild, Archivleiste, Filter nach Auslöser und Vollbildansicht, bei NAS-Upload auch Blättern im NAS-Archiv nach Tagen
 
 ### 2. Voraussetzungen
 
@@ -129,9 +129,10 @@ Die Instanz bringt eine eigene Kachel mit (HTML-SDK). Die Kachel der Konsole zei
   * **Behalten** (Lesezeichen): Ein markiertes Bild wird vom Ringpuffer nicht überschrieben. Erneutes Antippen hebt die Markierung auf.
   * **Herunterladen**: speichert das Bild als `<Name der Instanz>_<Datum>_<Uhrzeit>.jpg`. Ob die Datei gespeichert oder nur angezeigt wird, hängt von Browser bzw. App ab.
   * **Löschen** (Papierkorb): Das erste Antippen fragt nach („Löschen?“), das zweite innerhalb von 4 Sekunden löscht das Bild, auch wenn es als „Behalten“ markiert ist.
+* **Archiv** (nur bei eingeschaltetem NAS-Upload): Die Taste „Archiv“ unten links wechselt zu den Bildern auf dem NAS. Eine Auswahl bietet die Tage mit Bildern an (neuester zuerst), die Leiste zeigt die Bilder des Tages mit Vorschaubildern, der Filter nach Auslöser gilt auch hier. Archivbilder lassen sich ansehen, im Vollbild durchblättern und herunterladen; Behalten und Löschen gibt es im Archiv nicht. „Neueste“ wechselt zurück, ebenso ein Snapshot aus der Kachel.
 * Antippen des großen Bildes öffnet die Vollbildansicht. Wischen oder die Pfeile wechseln zum neueren oder älteren Bild, Antippen des Bildes oder das Kreuz schließt die Ansicht. Am Rechner gehen auch die Pfeiltasten und Escape. Erlaubt der Browser bzw. die App für die Kachel echtes Vollbild, füllt die Ansicht den ganzen Bildschirm, sonst die ganze Kachel.
 
-Die Bilder liefert der WebHook der Instanz (`/hook/camera-archive-<InstanzID>`). WebHooks sind ohne Anmeldung erreichbar, auch über Symcon Connect. Der WebHook liefert deshalb nur Bilder, wenn die Anfrage den geheimen Schlüssel der Instanz enthält. Diesen Schlüssel erhalten nur die Kacheln der Instanz und der Konsole, die selbst durch das Passwort der Visualisierung geschützt sind. Die Aktionen der Kachel laufen nicht über den WebHook, sondern über die Visualisierung.
+Die Bilder liefert der WebHook der Instanz (`/hook/camera-archive-<InstanzID>`). WebHooks sind ohne Anmeldung erreichbar, auch über Symcon Connect. Der WebHook liefert deshalb nur Bilder, wenn die Anfrage den geheimen Schlüssel der Instanz enthält. Diesen Schlüssel erhalten nur die Kacheln der Instanz und der Konsole, die selbst durch das Passwort der Visualisierung geschützt sind. Die Aktionen der Kachel laufen nicht über den WebHook, sondern über die Visualisierung. Archivbilder holt der WebHook über die Konsole vom NAS; er liefert nur Dateien aus dem NAS-Ordner dieser Kamera, Datum und Dateiname werden geprüft.
 
 ### 7. PHP-Befehlsreferenz
 

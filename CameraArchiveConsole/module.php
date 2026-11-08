@@ -59,6 +59,11 @@ class CameraArchiveConsole extends IPSModuleStrict
     // Folders known to exist, retention per camera folder, date of the last rotation, error state
     private const NAS_STATE_BUFFER = 'NASState';
     private const DATE_FOLDER_PATTERN = '/^\d{4}-\d{2}-\d{2}$/';
+    // Archive files: "HHMMSS_Trigger.jpg" in the date folder, previews with the same name in its subfolder
+    private const ARCHIVE_FILE_PATTERN = '/^(\d{2})(\d{2})(\d{2})_(.+)\.jpg$/u';
+    private const THUMB_FOLDER = 'thumbs';
+    private const THUMB_WIDTH = 320;
+    private const THUMB_QUALITY = 70;
 
     public function Create(): void
     {
@@ -141,6 +146,8 @@ class CameraArchiveConsole extends IPSModuleStrict
             'GetCameras'   => $this->GetCamerasForChild(),
             'Snapshot'     => $this->SnapshotForChild(is_string($request['CameraID'] ?? null) ? $request['CameraID'] : '', is_array($request['NAS'] ?? null) ? $request['NAS'] : null),
             'NASKeep'      => $this->QueueKeepCopy(is_string($request['Path'] ?? null) ? $request['Path'] : ''),
+            'NASList'      => $this->ListArchive(is_string($request['Folder'] ?? null) ? $request['Folder'] : '', is_string($request['Date'] ?? null) ? $request['Date'] : ''),
+            'NASGet'       => $this->GetArchiveImage(is_string($request['Folder'] ?? null) ? $request['Folder'] : '', is_string($request['Date'] ?? null) ? $request['Date'] : '', is_string($request['File'] ?? null) ? $request['File'] : '', ($request['Thumb'] ?? false) === true),
             'GetSettings'  => ['ok' => true, 'message' => '', 'memoryCache' => $this->ReadPropertyBoolean('MemoryCache')],
             'StateChanged' => $this->HandleStateChanged(),
             default        => ['ok' => false, 'message' => 'Invalid request']
@@ -156,6 +163,10 @@ class CameraArchiveConsole extends IPSModuleStrict
     {
         if ($Ident === self::UPLOAD_TIMER) {
             $this->ProcessUploads();
+            return;
+        }
+        if ($Ident === 'ArchiveList') {
+            $this->HandleArchiveList($Value);
             return;
         }
         if (!in_array($Ident, self::TILE_ACTIONS, true)) {
@@ -562,7 +573,135 @@ class CameraArchiveConsole extends IPSModuleStrict
             $message = sprintf($this->Translate('Upload incomplete (%d of %d bytes)'), $head['length'], strlen($data));
             return $this->HandleNASResult(['errno' => 0, 'error' => '', 'code' => 0, 'body' => '', 'length' => -1, 'message' => $message], [200], $Entry['path']);
         }
+        $this->UploadThumbnail($segments, $data);
         return 'done';
+    }
+
+    /**
+     * Preview for the archive in the tile, uploaded after the original. It is optional: without GD or if the upload
+     * fails, the tile shows the original instead, so a failure is only written to the debug output.
+     */
+    private function UploadThumbnail(array $Segments, string $Data): void
+    {
+        $thumb = $this->ScaleJpeg($Data, self::THUMB_WIDTH, self::THUMB_QUALITY, 'Thumbnail');
+        if ($thumb === null) {
+            return;
+        }
+        $folder = $Segments[0] . '/' . $Segments[1] . '/' . self::THUMB_FOLDER;
+        if (!$this->EnsureNASFolder($folder)) {
+            return;
+        }
+        $response = $this->WebDAVRequest('PUT', $folder . '/' . $Segments[2], $thumb['data'], ['Content-Type: image/jpeg']);
+        $this->SendDebug('NAS', sprintf('Thumbnail %s: %s', $Segments[2], $response['errno'] === 0 ? 'HTTP ' . $response['code'] : $response['error']), 0);
+    }
+
+    /**
+     * Archive for a tile: days with images (newest first) or, with $Date, the images of that day (newest first).
+     * Result: ok, message, items.
+     */
+    private function ListArchive(string $Folder, string $Date): array
+    {
+        $folder = $this->SafeName($Folder, 'Camera');
+        if ($this->GetNASBaseURL() === '') {
+            return ['ok' => false, 'message' => $this->Translate('NAS: not set up'), 'items' => []];
+        }
+        if ($Date === '') {
+            $response = $this->WebDAVRequest('PROPFIND', $folder . '/', null, ['Depth: 1']);
+            if ($response['errno'] === 0 && $response['code'] === 404) {
+                return ['ok' => true, 'message' => '', 'items' => []];
+            }
+            if ($response['errno'] !== 0 || $response['code'] !== 207) {
+                return ['ok' => false, 'message' => $this->DescribeNASResponse($response, [207]), 'items' => []];
+            }
+            $days = array_values(array_filter(
+                $this->ParseChildren($response['body'], [$folder]),
+                fn (array $Child): bool => $Child['collection'] && preg_match(self::DATE_FOLDER_PATTERN, $Child['name']) === 1
+            ));
+            $days = array_column($days, 'name');
+            rsort($days);
+            return ['ok' => true, 'message' => '', 'items' => $days];
+        }
+
+        if (preg_match(self::DATE_FOLDER_PATTERN, $Date) !== 1) {
+            return ['ok' => false, 'message' => 'Invalid date', 'items' => []];
+        }
+        $response = $this->WebDAVRequest('PROPFIND', $folder . '/' . $Date . '/', null, ['Depth: 1']);
+        if ($response['errno'] !== 0 || $response['code'] !== 207) {
+            return ['ok' => false, 'message' => $this->DescribeNASResponse($response, [207]), 'items' => []];
+        }
+        [$year, $month, $day] = array_map('intval', explode('-', $Date));
+        $files = [];
+        foreach ($this->ParseChildren($response['body'], [$folder, $Date]) as $child) {
+            if ($child['collection'] || preg_match(self::ARCHIVE_FILE_PATTERN, $child['name'], $match) !== 1) {
+                continue;
+            }
+            $files[] = [
+                'file'    => $child['name'],
+                'time'    => (int) mktime((int) $match[1], (int) $match[2], (int) $match[3], $month, $day, $year),
+                'trigger' => $match[4]
+            ];
+        }
+        usort($files, fn (array $A, array $B): int => strcmp($B['file'], $A['file']));
+        return ['ok' => true, 'message' => '', 'items' => $files];
+    }
+
+    /**
+     * One archive image for the WebHook of a camera. With $Thumb the preview, or the original if there is none.
+     * Folder, date and file name are validated, so no other file of the NAS can be read. Result: ok, message, image.
+     */
+    private function GetArchiveImage(string $Folder, string $Date, string $File, bool $Thumb): array
+    {
+        $folder = $this->SafeName($Folder, 'Camera');
+        if ($this->GetNASBaseURL() === '' || preg_match(self::DATE_FOLDER_PATTERN, $Date) !== 1
+            || preg_match(self::ARCHIVE_FILE_PATTERN, $File) !== 1 || $this->SafeName($File, '') !== $File) {
+            return ['ok' => false, 'message' => 'Invalid request'];
+        }
+        $paths = [$folder . '/' . $Date . '/' . $File];
+        if ($Thumb) {
+            array_unshift($paths, $folder . '/' . $Date . '/' . self::THUMB_FOLDER . '/' . $File);
+        }
+        foreach ($paths as $path) {
+            $response = $this->WebDAVRequest('GET', $path);
+            if ($response['errno'] === 0 && $response['code'] === 200 && str_starts_with($response['body'], "\xFF\xD8")) {
+                return ['ok' => true, 'message' => '', 'image' => base64_encode($response['body'])];
+            }
+            if ($response['errno'] !== 0 || $response['code'] !== 404) {
+                return ['ok' => false, 'message' => $this->DescribeNASResponse($response, [200])];
+            }
+        }
+        return ['ok' => false, 'message' => 'Not found'];
+    }
+
+    /**
+     * "Archive" in the overview tile: the camera names its NAS folder, the answer goes to the tiles of the console.
+     */
+    private function HandleArchiveList(mixed $Value): void
+    {
+        $data = is_string($Value) ? json_decode($Value, true) : null;
+        $cameraID = is_array($data) ? ($data['camera'] ?? null) : null;
+        $request = is_array($data) && is_string($data['request'] ?? null) ? substr($data['request'], 0, 64) : '';
+        $date = is_array($data) && is_string($data['date'] ?? null) ? $data['date'] : '';
+        if (!is_int($cameraID) || $request === '') {
+            $this->SendDebug('Tile', 'ArchiveList: invalid value', 0);
+            return;
+        }
+        $folder = null;
+        foreach ($this->SendToChildren(['Command' => 'GetArchiveFolder', 'InstanceID' => $cameraID]) as $answer) {
+            if (is_string($answer['folder'] ?? null)) {
+                $folder = $answer['folder'];
+            }
+        }
+        $result = $folder === null
+            ? ['ok' => false, 'message' => $this->Translate('NAS upload is not enabled for this camera'), 'items' => []]
+            : $this->ListArchive($folder, $date);
+        $this->UpdateVisualizationValue((string) json_encode(['archive' => [
+            'request' => $request,
+            'camera'  => $cameraID,
+            'date'    => $date,
+            'ok'      => $result['ok'],
+            'message' => $result['message'],
+            'items'   => $result['items']
+        ]], JSON_INVALID_UTF8_SUBSTITUTE));
     }
 
     /**
@@ -687,18 +826,33 @@ class CameraArchiveConsole extends IPSModuleStrict
      */
     private function ParseDateFolders(string $Body, string $Folder): array
     {
-        preg_match_all('#<(?:[A-Za-z][\w.-]*:)?href>\s*([^<]+?)\s*</(?:[A-Za-z][\w.-]*:)?href>#i', $Body, $matches);
         $dates = [];
-        foreach ($matches[1] as $href) {
-            $path = rawurldecode((string) parse_url(html_entity_decode($href, ENT_QUOTES | ENT_XML1), PHP_URL_PATH));
-            $segments = explode('/', trim($path, '/'));
-            $name = end($segments);
-            $parent = prev($segments);
-            if (is_string($name) && $parent === $Folder && preg_match(self::DATE_FOLDER_PATTERN, $name) === 1) {
-                $dates[] = $name;
+        foreach ($this->ParseChildren($Body, [$Folder]) as $child) {
+            if (preg_match(self::DATE_FOLDER_PATTERN, $child['name']) === 1) {
+                $dates[] = $child['name'];
             }
         }
         return array_values(array_unique($dates));
+    }
+
+    /**
+     * Entries directly below the folder $Parent (its last path segments) from a PROPFIND answer (Depth 1):
+     * name and whether it is a folder (href ends with "/"). The folder itself is not listed.
+     */
+    private function ParseChildren(string $Body, array $Parent): array
+    {
+        preg_match_all('#<(?:[A-Za-z][\w.-]*:)?href>\s*([^<]+?)\s*</(?:[A-Za-z][\w.-]*:)?href>#i', $Body, $matches);
+        $children = [];
+        foreach ($matches[1] as $href) {
+            $path = rawurldecode((string) parse_url(html_entity_decode($href, ENT_QUOTES | ENT_XML1), PHP_URL_PATH));
+            $segments = explode('/', trim($path, '/'));
+            $name = array_pop($segments);
+            if (!is_string($name) || $name === '' || array_slice($segments, -count($Parent)) !== $Parent) {
+                continue;
+            }
+            $children[$name] = ['name' => $name, 'collection' => str_ends_with($path, '/')];
+        }
+        return array_values($children);
     }
 
     private function NASURL(string $Path): string
@@ -1180,51 +1334,61 @@ class CameraArchiveConsole extends IPSModuleStrict
         if (!$this->ReadPropertyBoolean('ResizeEnabled') || $maxWidth <= 0 || $width <= $maxWidth || $height <= 0) {
             return $original;
         }
-        if (!$this->IsGDAvailable()) {
-            $this->SendDebug('Resize', 'GD not available, image stored without resizing', 0);
-            return $original;
+        $resized = $this->ScaleJpeg($Jpeg, $maxWidth, $this->ReadPropertyInteger('ResizeQuality'), 'Resize');
+        return $resized ?? $original;
+    }
+
+    /**
+     * Scales a JPEG to the width (if it is wider) and encodes it with the quality. Returns null if the image cannot
+     * be scaled (no GD, not enough memory, invalid image); the reason is written to the debug output.
+     */
+    private function ScaleJpeg(string $Jpeg, int $MaxWidth, int $Quality, string $Title): ?array
+    {
+        // The notice for an unreadable image is expected here, the result is checked
+        $size = @getimagesizefromstring($Jpeg);
+        $width = is_array($size) ? (int) $size[0] : 0;
+        $height = is_array($size) ? (int) $size[1] : 0;
+        if ($width <= 0 || $height <= 0) {
+            $this->SendDebug($Title, 'Image could not be read', 0);
+            return null;
         }
+        if (!$this->IsGDAvailable()) {
+            $this->SendDebug($Title, 'GD not available', 0);
+            return null;
+        }
+        $targetWidth = min($width, $MaxWidth);
 
         // Decoded images need about 4 bytes per pixel (source and target), plus some headroom
-        $targetHeight = (int) ceil($height * $maxWidth / $width);
-        if (!$this->HasMemoryFor(($width * $height + $maxWidth * $targetHeight) * 5)) {
-            $this->SendDebug('Resize', sprintf('Not enough PHP memory for %d x %d, image stored without resizing', $width, $height), 0);
-            return $original;
+        $targetHeight = (int) ceil($height * $targetWidth / $width);
+        if (!$this->HasMemoryFor(($width * $height + $targetWidth * $targetHeight) * 5)) {
+            $this->SendDebug($Title, sprintf('Not enough PHP memory for %d x %d', $width, $height), 0);
+            return null;
         }
 
         // The return value is checked, a failure is reported in the debug output
         $source = @imagecreatefromstring($Jpeg);
         if ($source === false) {
-            $this->SendDebug('Resize', 'Image could not be decoded, stored without resizing', 0);
-            return $original;
+            $this->SendDebug($Title, 'Image could not be decoded', 0);
+            return null;
         }
-        $target = imagescale($source, $maxWidth);
+        $target = imagescale($source, $targetWidth);
         unset($source);
         if ($target === false) {
-            $this->SendDebug('Resize', 'Image could not be scaled, stored without resizing', 0);
-            return $original;
+            $this->SendDebug($Title, 'Image could not be scaled', 0);
+            return null;
         }
 
-        $quality = max(1, min(100, $this->ReadPropertyInteger('ResizeQuality')));
         ob_start();
-        $ok = imagejpeg($target, null, $quality);
+        $ok = imagejpeg($target, null, max(1, min(100, $Quality)));
         $data = (string) ob_get_clean();
         if (!$ok || $data === '') {
-            $this->SendDebug('Resize', 'Image could not be encoded, stored without resizing', 0);
-            return $original;
+            $this->SendDebug($Title, 'Image could not be encoded', 0);
+            return null;
         }
 
-        $resized = ['data' => $data, 'width' => imagesx($target), 'height' => imagesy($target)];
-        $this->SendDebug('Resize', sprintf(
-            '%d x %d, %d bytes -> %d x %d, %d bytes',
-            $width,
-            $height,
-            strlen($Jpeg),
-            $resized['width'],
-            $resized['height'],
-            strlen($data)
-        ), 0);
-        return $resized;
+        $scaled = ['data' => $data, 'width' => imagesx($target), 'height' => imagesy($target)];
+        $this->SendDebug($Title, sprintf('%d x %d, %d bytes -> %d x %d, %d bytes', $width, $height, strlen($Jpeg), $scaled['width'], $scaled['height'], strlen($data)), 0);
+        return $scaled;
     }
 
     private function HasMemoryFor(int $Bytes): bool
