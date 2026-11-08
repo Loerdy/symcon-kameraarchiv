@@ -163,8 +163,16 @@ class CameraArchiveConsole extends IPSModuleStrict
 
     private function SendToChildren(array $Request): array
     {
+        // While Symcon loads the instances (start, module update), single cameras may not be created yet.
+        // A missing answer must not stop the console, the cameras update themselves once they are ready.
+        try {
+            $answers = @$this->SendDataToChildren((string) json_encode(['DataID' => self::DATA_TO_CHILDREN, 'Buffer' => bin2hex((string) json_encode($Request))]));
+        } catch (Throwable $exception) {
+            $this->SendDebug('Children', sprintf('%s: %s', $Request['Command'] ?? '', $exception->getMessage()), 0);
+            return [];
+        }
         $results = [];
-        foreach ($this->SendDataToChildren((string) json_encode(['DataID' => self::DATA_TO_CHILDREN, 'Buffer' => bin2hex((string) json_encode($Request))])) as $result) {
+        foreach (is_array($answers) ? $answers : [] as $result) {
             $decoded = is_string($result) ? json_decode($result, true) : null;
             if (is_array($decoded)) {
                 $results[] = $decoded;

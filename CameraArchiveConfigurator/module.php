@@ -40,10 +40,16 @@ class CameraArchiveConfigurator extends IPSModuleStrict
             $this->PatchFormField($form['elements'], 'Message', 'caption', $this->Translate('Not connected to a Camera Archive Console.'));
             $this->PatchFormField($form['elements'], 'Message', 'visible', true);
         } else {
-            $answer = json_decode($this->SendDataToParent((string) json_encode([
-                'DataID' => self::DATA_TO_PARENT,
-                'Buffer' => bin2hex((string) json_encode(['Command' => 'GetCameras']))
-            ])), true);
+            // A console that is not created yet returns false with a warning; the warning would break the form
+            try {
+                $raw = @$this->SendDataToParent((string) json_encode([
+                    'DataID' => self::DATA_TO_PARENT,
+                    'Buffer' => bin2hex((string) json_encode(['Command' => 'GetCameras']))
+                ]));
+            } catch (Throwable $exception) {
+                $raw = null;
+            }
+            $answer = is_string($raw) ? json_decode($raw, true) : null;
             if (is_array($answer) && ($answer['ok'] ?? false) === true && is_array($answer['cameras'] ?? null)) {
                 $cameras = $answer['cameras'];
             } else {

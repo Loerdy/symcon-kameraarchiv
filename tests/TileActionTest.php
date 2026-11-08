@@ -170,6 +170,27 @@ class TileActionTest extends TestCase
         $this->assertCount(1, $this->images($doorModule));
     }
 
+    public function testApplyChangesWhileConsoleIsNotReady(): void
+    {
+        [$id, $module] = $this->createCamera();
+        $this->store($module, 'image-1');
+
+        // Module update: the camera is loaded before the interface of the console exists
+        $interfaces = new ReflectionProperty(IPS\InstanceManager::class, 'interfaces');
+        $all = $interfaces->getValue();
+        $withoutConsole = $all;
+        unset($withoutConsole[$this->console]);
+        $interfaces->setValue(null, $withoutConsole);
+        try {
+            IPS_ApplyChanges($id);
+            $module->RequestAction('TileKeep', json_encode(['slot' => 1, 'seq' => 1, 'keep' => true]));
+        } finally {
+            $interfaces->setValue(null, $all);
+        }
+        $this->assertSame(102, IPS_GetInstance($id)['InstanceStatus']);
+        $this->assertSame([true], array_column($this->images($module), 'keep'));
+    }
+
     public function testDownloadNameAndHook(): void
     {
         [$id, $module] = $this->createCamera();

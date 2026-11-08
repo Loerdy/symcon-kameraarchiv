@@ -370,7 +370,18 @@ class CameraArchiveCamera extends IPSModuleStrict
         if (!$this->HasConsole()) {
             return ['ok' => false, 'message' => $this->Translate('No Protect console connected')];
         }
-        $answer = $this->SendDataToParent((string) json_encode(['DataID' => self::DATA_TO_PARENT, 'Buffer' => bin2hex((string) json_encode($Request))]));
+        // While Symcon loads the instances (start, module update), the console may not be created yet: then
+        // SendDataToParent returns false with a warning instead of an answer. This must not stop ApplyChanges;
+        // the console sends its settings to all cameras itself once its ApplyChanges runs.
+        try {
+            $answer = @$this->SendDataToParent((string) json_encode(['DataID' => self::DATA_TO_PARENT, 'Buffer' => bin2hex((string) json_encode($Request))]));
+        } catch (Throwable $exception) {
+            $answer = null;
+        }
+        if (!is_string($answer)) {
+            $this->SendDebug('Console', sprintf('%s: no answer, the console is not ready', $Request['Command'] ?? ''), 0);
+            return ['ok' => false, 'message' => $this->Translate('Invalid answer of the Protect console')];
+        }
         $result = json_decode($answer, true);
         if (!is_array($result) || !is_bool($result['ok'] ?? null)) {
             return ['ok' => false, 'message' => $this->Translate('Invalid answer of the Protect console')];
