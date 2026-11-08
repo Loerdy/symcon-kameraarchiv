@@ -2,7 +2,7 @@
 
 Verbindung zur UniFi-Protect-Konsole. Die Kamera-Instanzen holen ihre Snapshots über diese Instanz. Ihre Kachel zeigt alle verbundenen Kameras auf einen Blick.
 
-> Status: in Entwicklung. Mail und NAS folgen.
+> Status: in Entwicklung. NAS folgt.
 
 ### Inhaltsverzeichnis
 

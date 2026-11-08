@@ -80,7 +80,7 @@ Keine Statusvariablen ohne Opt-in (Lizenzlimit).
 - Archivleiste darunter, sortiert neu → alt, filterbar nach Auslöser
 - Antippen des Bildes: Vollbildansicht (Fullscreen-API, falls für die Kachel erlaubt, sonst über die Kachel), Wischen/Pfeile zum Blättern
 - Ältere Bilder werden bei Bedarf vom NAS nachgeladen
-- Aktionen: Snapshot jetzt, Behalten, Per Mail (SMTP-Instanz, `SMTP_SendMailAttachment`), Download, Löschen
+- Aktionen: Snapshot jetzt, Behalten, Download, Löschen (eine Taste „Per Mail“ ist nicht vorgesehen)
 - Bildauslieferung über den WebHook des Moduls; dieser holt bei Bedarf auch Bilder vom NAS (keine Zugangsdaten oder CORS-Probleme im Browser)
 
 ## 5. Umsetzungsphasen
@@ -91,6 +91,6 @@ Keine Statusvariablen ohne Opt-in (Lizenzlimit).
 4. Auslöser: Liste, MessageSink, Verzögerungs-Warteschlange mit einem Timer, Sperrzeit
 5. Kachel: HTML-SDK, WebHook für Bilder (5a); Aktionen Snapshot jetzt, Behalten, Löschen, Download (5b, per `requestAction` mit JSON-Wert; die Übersichtskachel leitet über die Konsole an die Kamera weiter, Snapshot über die Warteschlange)
 5u. Umbau: Konsole, Konfigurator, Instanz je Kamera, Übersichtskachel, Vollbildansicht
-6. Mail: SMTP-Instanz wählbar, manuell und automatisch je Auslöser
+6. Benachrichtigungen je Kamera: E-Mail per `SMTP_SendMailMedia(Ex)` mit dem Bild-Medienobjekt als Anhang (keine Datei) oder Push per `VISU_PostNotification` (ohne Bild); je Auslöser oder alle, optionale Bedingung Variable = Wert; nur Auslöser-Snapshots
 7. Synology WebDAV: Upload, Rotation, Offline-Warteschlange, Nachladen in der Kachel
 8. Weitere Quellen: Direkt-URL, Surveillance Station

@@ -142,6 +142,118 @@
             "suffix": "s",
             "minimum": 0,
             "maximum": 3600
+        },
+        {
+            "type": "Label",
+            "caption": "Notifications: sent after a snapshot of a trigger has been stored.",
+            "bold": true
+        },
+        {
+            "type": "List",
+            "name": "Notifications",
+            "caption": "Notifications",
+            "rowCount": 4,
+            "add": true,
+            "delete": true,
+            "loadValuesFromConfiguration": false,
+            "form": "return json_decode(CAR_UINotificationForm($id, $Notifications['Type'] ?? 0, $Notifications['ConditionVariableID'] ?? 0), true);",
+            "columns": [
+                {
+                    "caption": "Active",
+                    "name": "Active",
+                    "width": "70px",
+                    "add": true,
+                    "edit": {
+                        "type": "CheckBox"
+                    }
+                },
+                {
+                    "caption": "Kind",
+                    "name": "Type",
+                    "width": "180px",
+                    "add": 0,
+                    "edit": {
+                        "type": "Select",
+                        "options": [
+                            {
+                                "caption": "E-mail",
+                                "value": 0
+                            },
+                            {
+                                "caption": "Push notification",
+                                "value": 1
+                            }
+                        ]
+                    }
+                },
+                {
+                    "caption": "Trigger (empty: all)",
+                    "name": "Trigger",
+                    "width": "200px",
+                    "add": "",
+                    "edit": {
+                        "type": "ValidationTextBox"
+                    }
+                },
+                {
+                    "caption": "Condition",
+                    "name": "ConditionVariableID",
+                    "width": "auto",
+                    "add": 0,
+                    "edit": {
+                        "type": "SelectVariable"
+                    }
+                },
+                {
+                    "caption": "SMTP instance",
+                    "name": "SMTPID",
+                    "width": "0px",
+                    "add": 0,
+                    "visible": false,
+                    "save": true
+                },
+                {
+                    "caption": "Recipient",
+                    "name": "Recipient",
+                    "width": "0px",
+                    "add": "",
+                    "visible": false,
+                    "save": true
+                },
+                {
+                    "caption": "Tile visualization",
+                    "name": "VisuID",
+                    "width": "0px",
+                    "add": 0,
+                    "visible": false,
+                    "save": true
+                },
+                {
+                    "caption": "Opens on tap",
+                    "name": "PushTargetID",
+                    "width": "0px",
+                    "add": 0,
+                    "visible": false,
+                    "save": true
+                },
+                {
+                    "caption": "Value",
+                    "name": "ConditionValue",
+                    "width": "0px",
+                    "add": "",
+                    "visible": false,
+                    "save": true
+                },
+                {
+                    "caption": "Value",
+                    "name": "ConditionValueBool",
+                    "width": "0px",
+                    "add": "",
+                    "visible": false,
+                    "save": true
+                }
+            ],
+            "values": []
         }
     ],
     "actions": [

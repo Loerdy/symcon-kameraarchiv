@@ -56,6 +56,17 @@ class CameraArchiveCamera extends IPSModuleStrict
     // Seconds after which a notice is no longer shown in a newly opened tile
     private const NOTICE_MAX_AGE = 30;
 
+    // Notifications after a stored snapshot of a trigger
+    private const NOTIFY_MAIL = 0;
+    private const NOTIFY_PUSH = 1;
+    // Module ID of the Tile Visualization (provided by the user from the own system, also in the SymconStubs)
+    private const TILE_VISUALIZATION_MODULE = '{B5B875BB-9B76-45FD-4E67-2607E45B3AC4}';
+    // Limits of VISU_PostNotification
+    private const PUSH_TITLE_MAX = 32;
+    private const PUSH_TEXT_MAX = 256;
+    // Notifications whose last sending failed (reported once in the message log)
+    private const NOTIFY_FAILED_BUFFER = 'NotifyFailed';
+
     public function Create(): void
     {
         // Never delete this line!
@@ -65,6 +76,7 @@ class CameraArchiveCamera extends IPSModuleStrict
         $this->RegisterPropertyInteger('Images', self::IMAGES_DEFAULT);
         $this->RegisterPropertyString('Triggers', '[]');
         $this->RegisterPropertyInteger('CameraLockout', self::CAMERA_LOCKOUT_DEFAULT);
+        $this->RegisterPropertyString('Notifications', '[]');
 
         // Secret of the image WebHook, created once in ApplyChanges
         $this->RegisterAttributeString(self::TOKEN_ATTRIBUTE, '');
@@ -174,6 +186,7 @@ class CameraArchiveCamera extends IPSModuleStrict
         // The list uses loadValuesFromConfiguration = false, so the saved rows are filled in here
         // (store review guideline 13). This allows the row colors.
         $this->PatchFormField($form['elements'], 'Triggers', 'values', $this->BuildTriggerRows());
+        $this->PatchFormField($form['elements'], 'Notifications', 'values', $this->BuildNotificationRows());
         $this->PatchFormField($form['elements'], 'StorageInfo', 'caption', $this->GetStorageInfo());
         return json_encode($form);
     }
@@ -275,6 +288,54 @@ class CameraArchiveCamera extends IPSModuleStrict
         $this->UpdateFormField('Value', 'caption', $fields['caption']);
         $this->UpdateFormField('Value', 'visible', $fields['Value']);
         $this->UpdateFormField('ValueHint', 'visible', $fields['ValueHint']);
+    }
+
+    /**
+     * Edit dialog of a notification row. Like the trigger dialog, all fields are in the dialog and onChange shows the
+     * fields matching the kind of notification and the type of the condition variable.
+     */
+    public function UINotificationForm(int $Type, int $ConditionVariableID): string
+    {
+        $fields = $this->GetNotificationFieldState($Type, $ConditionVariableID);
+        $update = 'CAR_UINotificationUpdate($id, $Type, $ConditionVariableID);';
+        $triggerOptions = [['caption' => $this->Translate('All triggers'), 'value' => '']];
+        foreach (array_unique(array_filter(array_map(fn (array $Trigger): string => $this->GetTriggerName($Trigger), $this->GetTriggerList()))) as $name) {
+            $triggerOptions[] = ['caption' => $name, 'value' => $name];
+        }
+        return json_encode([
+            ['type' => 'CheckBox', 'name' => 'Active', 'caption' => $this->Translate('Active')],
+            ['type' => 'Select', 'name' => 'Type', 'caption' => $this->Translate('Kind'), 'options' => $this->GetNotificationTypeOptions(), 'onChange' => $update],
+            ['type' => 'SelectInstance', 'name' => 'SMTPID', 'caption' => $this->Translate('SMTP instance'), 'visible' => $fields['SMTPID']],
+            ['type' => 'ValidationTextBox', 'name' => 'Recipient', 'caption' => $this->Translate('Recipient (empty: default address of the SMTP instance)'), 'visible' => $fields['Recipient']],
+            ['type' => 'SelectInstance', 'name' => 'VisuID', 'caption' => $this->Translate('Tile visualization'), 'validModules' => [self::TILE_VISUALIZATION_MODULE], 'visible' => $fields['VisuID']],
+            ['type' => 'SelectObject', 'name' => 'PushTargetID', 'caption' => $this->Translate('Opens on tap (empty: this camera)'), 'visible' => $fields['PushTargetID']],
+            ['type' => 'Select', 'name' => 'Trigger', 'caption' => $this->Translate('Trigger'), 'options' => $triggerOptions],
+            ['type' => 'Label', 'caption' => $this->Translate('Condition (optional): only send if the variable has the value'), 'bold' => true],
+            ['type' => 'SelectVariable', 'name' => 'ConditionVariableID', 'caption' => $this->Translate('Variable'), 'onChange' => $update],
+            [
+                'type'    => 'Select',
+                'name'    => 'ConditionValueBool',
+                'caption' => $this->Translate('Value'),
+                'options' => [
+                    ['caption' => $this->Translate('true (on)'), 'value' => 'true'],
+                    ['caption' => $this->Translate('false (off)'), 'value' => 'false']
+                ],
+                'visible' => $fields['ConditionValueBool']
+            ],
+            ['type' => 'ValidationTextBox', 'name' => 'ConditionValue', 'caption' => $fields['caption'], 'visible' => $fields['ConditionValue']]
+        ]);
+    }
+
+    /**
+     * onChange of kind and condition variable in the notification dialog.
+     */
+    public function UINotificationUpdate(int $Type, int $ConditionVariableID): void
+    {
+        $fields = $this->GetNotificationFieldState($Type, $ConditionVariableID);
+        foreach (['SMTPID', 'Recipient', 'VisuID', 'PushTargetID', 'ConditionValueBool', 'ConditionValue'] as $name) {
+            $this->UpdateFormField($name, 'visible', $fields[$name]);
+        }
+        $this->UpdateFormField('ConditionValue', 'caption', $fields['caption']);
     }
 
     /**
@@ -431,7 +492,7 @@ class CameraArchiveCamera extends IPSModuleStrict
             return $stored;
         }
         $this->UpdateTile();
-        return ['ok' => true, 'message' => sprintf(
+        return ['ok' => true, 'mediaID' => $stored['mediaID'], 'time' => $stored['time'], 'message' => sprintf(
             $this->Translate('Snapshot stored: %d x %d, %d bytes'),
             $image['width'],
             $image['height'],
@@ -466,6 +527,215 @@ class CameraArchiveCamera extends IPSModuleStrict
         return $triggers;
     }
 
+    /**
+     * Name of a trigger as stored with the image: own name, otherwise the name of the variable.
+     */
+    private function GetTriggerName(array $Trigger): string
+    {
+        if ($Trigger['Name'] !== '') {
+            return $Trigger['Name'];
+        }
+        return $Trigger['VariableID'] > 0 && IPS_VariableExists($Trigger['VariableID']) ? IPS_GetName($Trigger['VariableID']) : '';
+    }
+
+    /**
+     * Saved notification rows with validated values. "Index" is the position in the list.
+     */
+    private function GetNotificationList(): array
+    {
+        $list = json_decode($this->ReadPropertyString('Notifications'), true);
+        if (!is_array($list)) {
+            return [];
+        }
+        $int = fn (mixed $Value): int => is_int($Value) ? $Value : 0;
+        $string = fn (mixed $Value): string => is_string($Value) ? $Value : '';
+        $notifications = [];
+        foreach (array_values(array_filter($list, 'is_array')) as $index => $row) {
+            $type = $row['Type'] ?? self::NOTIFY_MAIL;
+            $notifications[] = [
+                'Index'               => $index,
+                'Active'              => ($row['Active'] ?? true) === true,
+                'Type'                => $type === self::NOTIFY_PUSH ? self::NOTIFY_PUSH : self::NOTIFY_MAIL,
+                'SMTPID'              => $int($row['SMTPID'] ?? 0),
+                'Recipient'           => trim($string($row['Recipient'] ?? '')),
+                'VisuID'              => $int($row['VisuID'] ?? 0),
+                'PushTargetID'        => $int($row['PushTargetID'] ?? 0),
+                'Trigger'             => $string($row['Trigger'] ?? ''),
+                'ConditionVariableID' => $int($row['ConditionVariableID'] ?? 0),
+                'Value'               => $string($row['ConditionValue'] ?? ''),
+                'ValueBool'           => $string($row['ConditionValueBool'] ?? '')
+            ];
+        }
+        return $notifications;
+    }
+
+    /**
+     * Problem of a notification row that prevents sending, or '' if it can be sent.
+     */
+    private function GetNotificationProblem(array $Notification): string
+    {
+        if ($Notification['Type'] === self::NOTIFY_MAIL) {
+            if ($Notification['SMTPID'] <= 0 || !IPS_InstanceExists($Notification['SMTPID'])) {
+                return 'no SMTP instance';
+            }
+            if ($Notification['Recipient'] !== '' && filter_var($Notification['Recipient'], FILTER_VALIDATE_EMAIL) === false) {
+                return 'invalid recipient';
+            }
+        } elseif ($Notification['VisuID'] <= 0 || !IPS_InstanceExists($Notification['VisuID'])
+            || IPS_GetInstance($Notification['VisuID'])['ModuleInfo']['ModuleID'] !== self::TILE_VISUALIZATION_MODULE) {
+            return 'no tile visualization';
+        }
+        $variableID = $Notification['ConditionVariableID'];
+        if ($variableID > 0) {
+            if (!IPS_VariableExists($variableID)) {
+                return 'condition variable missing';
+            }
+            if ($this->GetExpectedValue($Notification, IPS_GetVariable($variableID)['VariableType']) === '') {
+                return 'condition value missing';
+            }
+        }
+        return '';
+    }
+
+    private function BuildNotificationRows(): array
+    {
+        $list = json_decode($this->ReadPropertyString('Notifications'), true);
+        $notifications = $this->GetNotificationList();
+        $rows = [];
+        foreach (is_array($list) ? array_values(array_filter($list, 'is_array')) : [] as $position => $row) {
+            $row['rowColor'] = $this->GetNotificationProblem($notifications[$position]) !== '' ? '#FFC0C0' : '';
+            $rows[] = $row;
+        }
+        return $rows;
+    }
+
+    private function GetNotificationTypeOptions(): array
+    {
+        return [
+            ['caption' => $this->Translate('E-mail'), 'value' => self::NOTIFY_MAIL],
+            ['caption' => $this->Translate('Push notification'), 'value' => self::NOTIFY_PUSH]
+        ];
+    }
+
+    /**
+     * Visibility of the fields in the notification dialog and the caption of the condition text field.
+     */
+    private function GetNotificationFieldState(int $Type, int $ConditionVariableID): array
+    {
+        $mail = $Type !== self::NOTIFY_PUSH;
+        $type = $ConditionVariableID > 0 && IPS_VariableExists($ConditionVariableID) ? IPS_GetVariable($ConditionVariableID)['VariableType'] : null;
+        return [
+            'SMTPID'             => $mail,
+            'Recipient'          => $mail,
+            'VisuID'             => !$mail,
+            'PushTargetID'       => !$mail,
+            'ConditionValueBool' => $type === VARIABLETYPE_BOOLEAN,
+            'ConditionValue'     => $type !== null && $type !== VARIABLETYPE_BOOLEAN,
+            'caption'            => $this->Translate($type === VARIABLETYPE_STRING ? 'Value (text)' : 'Value (number)')
+        ];
+    }
+
+    /**
+     * Sends the notifications of a stored trigger snapshot. Every notification is independent: a failure is logged
+     * and does not stop the others.
+     */
+    private function SendNotifications(string $Trigger, int $MediaID, int $Time): void
+    {
+        $failed = json_decode($this->GetBuffer(self::NOTIFY_FAILED_BUFFER), true);
+        $failed = is_array($failed) ? $failed : [];
+        $before = $failed;
+        foreach ($this->GetNotificationList() as $notification) {
+            if (!$notification['Active'] || ($notification['Trigger'] !== '' && $notification['Trigger'] !== $Trigger)) {
+                continue;
+            }
+            $label = sprintf('Notification %d', $notification['Index'] + 1);
+            $problem = $this->GetNotificationProblem($notification);
+            if ($problem !== '') {
+                $this->SendDebug('Notify', sprintf('%s: %s, not sent', $label, $problem), 0);
+                continue;
+            }
+            if (!$this->IsNotificationConditionMet($notification)) {
+                $this->SendDebug('Notify', sprintf('%s: condition not met', $label), 0);
+                continue;
+            }
+            try {
+                $sent = $notification['Type'] === self::NOTIFY_MAIL
+                    ? $this->SendMail($notification, $Trigger, $MediaID, $Time)
+                    : $this->SendPush($notification, $Trigger, $Time);
+            } catch (Throwable $exception) {
+                $this->SendDebug('Notify', sprintf('%s: %s', $label, $exception->getMessage()), 0);
+                $sent = false;
+            }
+            $key = (string) $notification['Index'];
+            $this->SendDebug('Notify', sprintf('%s: %s', $label, $sent ? 'sent' : 'failed'), 0);
+            if ($sent) {
+                unset($failed[$key]);
+            } elseif (!isset($failed[$key])) {
+                // Reported once until it works again
+                $failed[$key] = true;
+                $this->LogMessage(sprintf($this->Translate('Notification %d of %s could not be sent. Details in the debug output.'), $notification['Index'] + 1, IPS_GetName($this->InstanceID)), KL_WARNING);
+            }
+        }
+        if ($failed !== $before) {
+            $this->SetBuffer(self::NOTIFY_FAILED_BUFFER, (string) json_encode($failed));
+        }
+    }
+
+    private function IsNotificationConditionMet(array $Notification): bool
+    {
+        $variableID = $Notification['ConditionVariableID'];
+        if ($variableID <= 0) {
+            return true;
+        }
+        $type = IPS_GetVariable($variableID)['VariableType'];
+        return $this->ValueEquals($this->GetExpectedValue($Notification, $type), GetValue($variableID), $type);
+    }
+
+    /**
+     * E-mail with the stored image medium as attachment, no file needed.
+     */
+    private function SendMail(array $Notification, string $Trigger, int $MediaID, int $Time): bool
+    {
+        if (!function_exists('SMTP_SendMailMedia')) {
+            $this->SendDebug('Notify', 'SMTP functions not available', 0);
+            return false;
+        }
+        $camera = IPS_GetName($this->InstanceID);
+        $subject = sprintf('%s: %s', $camera, $Trigger);
+        $text = implode("\n", [
+            sprintf($this->Translate('Snapshot of %s'), $camera),
+            sprintf($this->Translate('Trigger: %s'), $Trigger),
+            sprintf($this->Translate('Time: %s'), date('d.m.Y H:i:s', $Time))
+        ]);
+        if ($Notification['Recipient'] === '') {
+            return @SMTP_SendMailMedia($Notification['SMTPID'], $subject, $text, $MediaID) === true;
+        }
+        return @SMTP_SendMailMediaEx($Notification['SMTPID'], $Notification['Recipient'], $subject, $text, $MediaID) === true;
+    }
+
+    /**
+     * Push notification of the tile visualization (text only, an image is not supported). A tap opens the camera
+     * or the selected object.
+     */
+    private function SendPush(array $Notification, string $Trigger, int $Time): bool
+    {
+        if (!function_exists('VISU_PostNotification')) {
+            $this->SendDebug('Notify', 'VISU functions not available', 0);
+            return false;
+        }
+        $target = $Notification['PushTargetID'] > 0 && IPS_ObjectExists($Notification['PushTargetID']) ? $Notification['PushTargetID'] : $this->InstanceID;
+        $title = $this->Shorten(IPS_GetName($this->InstanceID), self::PUSH_TITLE_MAX);
+        $text = $this->Shorten(sprintf('%s, %s', $Trigger, date('H:i', $Time)), self::PUSH_TEXT_MAX);
+        return @VISU_PostNotification($Notification['VisuID'], $title, $text, '', $target) !== false;
+    }
+
+    /**
+     * Shortens a UTF-8 text to the given number of characters (without mbstring).
+     */
+    private function Shorten(string $Text, int $Length): string
+    {
+        return preg_match('/^.{0,' . $Length . '}/us', $Text, $match) === 1 ? $match[0] : substr($Text, 0, $Length);
+    }
     private function ClampInteger(mixed $Value, int $Minimum, int $Maximum, int $Default): int
     {
         return is_int($Value) ? max($Minimum, min($Maximum, $Value)) : $Default;
@@ -544,6 +814,14 @@ class CameraArchiveCamera extends IPSModuleStrict
                 $this->RegisterReference($trigger['VariableID']);
             }
         }
+        // Objects used by the notifications (no messages needed, they are read when sending)
+        foreach ($this->GetNotificationList() as $notification) {
+            foreach ([$notification['SMTPID'], $notification['VisuID'], $notification['PushTargetID'], $notification['ConditionVariableID']] as $objectID) {
+                if ($objectID > 0 && IPS_ObjectExists($objectID) && !in_array($objectID, $this->GetReferenceList(), true)) {
+                    $this->RegisterReference($objectID);
+                }
+            }
+        }
     }
 
     /**
@@ -600,7 +878,7 @@ class CameraArchiveCamera extends IPSModuleStrict
                 if ($trigger['VariableID'] !== $VariableID || !$this->IsConditionMet($trigger, $changed, $value, $type)) {
                     continue;
                 }
-                $name = $trigger['Name'] !== '' ? $trigger['Name'] : IPS_GetName($VariableID);
+                $name = $this->GetTriggerName($trigger);
                 if (!$trigger['Active']) {
                     $this->SendDebug('Trigger', sprintf('%s: inactive', $name), 0);
                     continue;
@@ -721,6 +999,9 @@ class CameraArchiveCamera extends IPSModuleStrict
             if (!$result['ok']) {
                 // Shown in open tiles, e.g. after "Take snapshot" in the tile
                 $this->SetTileNotice($result['message']);
+            } elseif (($entry['tile'] ?? false) !== true) {
+                // Only snapshots of triggers are notified
+                $this->SendNotifications($entry['trigger'], $result['mediaID'], $result['time']);
             }
         }
     }
@@ -928,7 +1209,7 @@ class CameraArchiveCamera extends IPSModuleStrict
                 return ['ok' => false, 'message' => $this->Translate('The image index could not be saved')];
             }
             $this->SendDebug('Storage', sprintf('Slot %d, %d bytes, %d images', $slot, strlen($Image['data']), count($entries)), 0);
-            return ['ok' => true, 'message' => ''];
+            return ['ok' => true, 'message' => '', 'mediaID' => $mediaID, 'time' => end($entries)['time']];
         } finally {
             $this->LeaveStorageLock();
         }

@@ -2,7 +2,7 @@
 
 Eine Kamera der UniFi-Protect-Konsole: nimmt per Auslöser oder manuell Snapshots auf, speichert die neuesten Bilder als Medienobjekte unterhalb der Instanz und zeigt sie in einer Kachel an.
 
-> Status: in Entwicklung. Mail und NAS folgen.
+> Status: in Entwicklung. NAS folgt.
 
 ### Inhaltsverzeichnis
 
@@ -19,6 +19,7 @@ Eine Kamera der UniFi-Protect-Konsole: nimmt per Auslöser oder manuell Snapshot
 * Snapshots über die [Kamera-Archiv Konsole](../CameraArchiveConsole/README.md)
 * Auslöser: Variablen (Klingel, Türkontakt, Bewegungsmelder …) lösen Snapshots aus, mit Verzögerung und Sperrzeit
 * Ringpuffer der neuesten Bilder als Medienobjekte unterhalb der Instanz (Standard: 5 Bilder)
+* Benachrichtigung per E-Mail mit Bild oder per Push-Nachricht, je Auslöser und mit optionaler Bedingung (z. B. niemand zu Hause)
 * Kachel mit neuestem Bild, Archivleiste, Filter nach Auslöser und Vollbildansicht
 
 ### 2. Voraussetzungen
@@ -45,6 +46,7 @@ __Konfigurationsseite__:
 | Bilder im RAM | Anzahl der gespeicherten Bilder (1–200, Standard 5). |
 | Auslöser | Liste der Auslöser, Bearbeiten über das Stift-Symbol. Je Auslöser: Aktiv, Name (erscheint als Auslöser am Bild; leer = Name der Variable), Variable, Bedingung, Wert (bei „Wechselt auf Wert“ und „Wird mit Wert aktualisiert“; bei Bool-Variablen Auswahl wahr/falsch, sonst Eingabe als Zahl mit Komma oder Punkt bzw. als Text, Groß-/Kleinschreibung zählt, leer löst nie aus), Verzögerung (0–60 s) und Sperrzeit (0–3600 s, Standard 30 s). Das Wertfeld passt sich der gewählten Variable an. Rot markiert: Variable fehlt. |
 | Mindestabstand zwischen zwei Snapshots | Gilt über alle Auslöser dieser Kamera hinweg, z. B. wenn Klingel und Türkontakt gleichzeitig auslösen. Standard 5 s, 0 = aus. |
+| Benachrichtigungen | Liste der Benachrichtigungen, Bearbeiten über das Stift-Symbol, siehe unten. Rot markiert: Instanz fehlt, Empfänger ungültig, Bedingungsvariable fehlt oder Bedingungswert nicht gesetzt. |
 
 Soll ein Ereignis mehrere Kameras auslösen (z. B. die Klingel für Haustür und Einfahrt), wird der Auslöser in jeder dieser Kameras eingetragen.
 
@@ -63,6 +65,25 @@ __Ablauf der Auslöser__:
 * Die Sperrzeit eines Auslösers zählt ab seiner letzten Auslösung. Der Mindestabstand verhindert zwei Snapshots kurz hintereinander.
 * Inaktive Auslöser und eine unvollständige Konfiguration (keine Kamera-ID, keine Konsole) lösen keinen Snapshot aus (Hinweis in der Debug-Ausgabe).
 * Die Warteschlange liegt nur im Arbeitsspeicher. Bei einem Neustart von Symcon gehen noch nicht aufgenommene Snapshots verloren, und Änderungen während des Neustarts werden nicht nachgeholt.
+
+__Benachrichtigungen__:
+
+Nach jedem gespeicherten Snapshot eines Auslösers werden die passenden Benachrichtigungen gesendet. Snapshots aus der Kachel und „Snapshot testen“ lösen keine Benachrichtigung aus.
+
+| Feld | Beschreibung |
+| ---- | ------------ |
+| Aktiv | Inaktive Benachrichtigungen werden nicht gesendet. |
+| Art | E-Mail oder Push-Nachricht |
+| SMTP-Instanz | Nur E-Mail: die Instanz „E-Mail senden (SMTP)“, über die gesendet wird. |
+| Empfänger | Nur E-Mail: eine E-Mail-Adresse. Leer = Standardadresse der SMTP-Instanz. |
+| Kachel-Visualisierung | Nur Push: die Visualisierung, an deren Geräte die Nachricht geht. |
+| Öffnet beim Antippen | Nur Push: Objekt, das sich beim Antippen der Nachricht öffnet. Leer = diese Kamera. Laut Symcon-Doku muss das Objekt in der gewählten Visualisierung enthalten sein. |
+| Auslöser | Nur bei diesem Auslöser senden. Leer = bei allen Auslösern. Für mehrere bestimmte Auslöser je Auslöser eine Zeile anlegen. |
+| Bedingung | Optional: Variable und Wert, z. B. Anwesenheit = falsch für „niemand zu Hause“. Gesendet wird nur, wenn die Variable beim Speichern des Bildes diesen Wert hat. Das Wertfeld passt sich der Variable an, wie bei den Auslösern. |
+
+* **E-Mail:** Betreff „Kamera: Auslöser“, im Text Kamera, Auslöser und Zeit. Das Bild hängt als Anhang an (direkt aus dem Medienobjekt, ohne Datei).
+* **Push:** Titel = Name der Kamera (höchstens 32 Zeichen), Text = Auslöser und Uhrzeit. Ein Bild ist in Push-Nachrichten von Symcon nicht möglich.
+* Jede Benachrichtigung wird unabhängig gesendet. Schlägt eine fehl, werden die anderen trotzdem gesendet. Der Fehler steht in der Debug-Ausgabe und einmalig im Meldungsfenster, bis der Versand wieder klappt.
 
 __Testbereich__:
 
