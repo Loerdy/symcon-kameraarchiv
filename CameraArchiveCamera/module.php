@@ -63,6 +63,8 @@ class CameraArchiveCamera extends IPSModuleStrict
     private const NOTIFY_PUSH = 1;
     // Module ID of the Tile Visualization (provided by the user from the own system, also in the SymconStubs)
     private const TILE_VISUALIZATION_MODULE = '{B5B875BB-9B76-45FD-4E67-2607E45B3AC4}';
+    // Module ID of the SMTP module (provided by the user from the own system)
+    private const SMTP_MODULE = '{375EAF21-35EF-4BC4-83B3-C780FD8BD88A}';
     // Limits of VISU_PostNotification
     private const PUSH_TITLE_MAX = 32;
     private const PUSH_TEXT_MAX = 256;
@@ -333,7 +335,7 @@ class CameraArchiveCamera extends IPSModuleStrict
         return json_encode([
             ['type' => 'CheckBox', 'name' => 'Active', 'caption' => $this->Translate('Active')],
             ['type' => 'Select', 'name' => 'Type', 'caption' => $this->Translate('Kind'), 'options' => $this->GetNotificationTypeOptions(), 'onChange' => $update],
-            ['type' => 'SelectInstance', 'name' => 'SMTPID', 'caption' => $this->Translate('SMTP instance'), 'visible' => $fields['SMTPID']],
+            ['type' => 'SelectInstance', 'name' => 'SMTPID', 'caption' => $this->Translate('SMTP instance'), 'validModules' => [self::SMTP_MODULE], 'visible' => $fields['SMTPID']],
             ['type' => 'ValidationTextBox', 'name' => 'Recipient', 'caption' => $this->Translate('Recipient (empty: default address of the SMTP instance)'), 'visible' => $fields['Recipient']],
             ['type' => 'SelectInstance', 'name' => 'VisuID', 'caption' => $this->Translate('Tile visualization'), 'validModules' => [self::TILE_VISUALIZATION_MODULE], 'visible' => $fields['VisuID']],
             ['type' => 'SelectObject', 'name' => 'PushTargetID', 'caption' => $this->Translate('Opens on tap (empty: this camera)'), 'visible' => $fields['PushTargetID']],
@@ -624,7 +626,8 @@ class CameraArchiveCamera extends IPSModuleStrict
     private function GetNotificationProblem(array $Notification): string
     {
         if ($Notification['Type'] === self::NOTIFY_MAIL) {
-            if ($Notification['SMTPID'] <= 0 || !IPS_InstanceExists($Notification['SMTPID'])) {
+            if ($Notification['SMTPID'] <= 0 || !IPS_InstanceExists($Notification['SMTPID'])
+                || IPS_GetInstance($Notification['SMTPID'])['ModuleInfo']['ModuleID'] !== self::SMTP_MODULE) {
                 return 'no SMTP instance';
             }
             if ($Notification['Recipient'] !== '' && filter_var($Notification['Recipient'], FILTER_VALIDATE_EMAIL) === false) {

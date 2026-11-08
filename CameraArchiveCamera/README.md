@@ -76,7 +76,7 @@ Nach jedem gespeicherten Snapshot eines Auslösers werden die passenden Benachri
 | ---- | ------------ |
 | Aktiv | Inaktive Benachrichtigungen werden nicht gesendet. |
 | Art | E-Mail oder Push-Nachricht |
-| SMTP-Instanz | Nur E-Mail: die Instanz „E-Mail senden (SMTP)“, über die gesendet wird. |
+| SMTP-Instanz | Nur E-Mail: die Instanz „E-Mail senden (SMTP)“, über die gesendet wird. Andere Instanzen lassen sich nicht auswählen. |
 | Empfänger | Nur E-Mail: eine E-Mail-Adresse. Leer = Standardadresse der SMTP-Instanz. |
 | Kachel-Visualisierung | Nur Push: die Visualisierung, an deren Geräte die Nachricht geht. |
 | Öffnet beim Antippen | Nur Push: Objekt, das sich beim Antippen der Nachricht öffnet. Leer = diese Kamera. Laut Symcon-Doku muss das Objekt in der gewählten Visualisierung enthalten sein. |

@@ -6,27 +6,13 @@ include_once __DIR__ . '/stubs/autoload.php';
 
 use PHPUnit\Framework\TestCase;
 
-// The SymconStubs contain no SMTP module: these functions stand in for it and record the calls
-if (!function_exists('SMTP_SendMailMedia')) {
-    function SMTP_SendMailMedia(int $InstanceID, string $Subject, string $Text, int $MediaID): bool
-    {
-        $GLOBALS['smtpCalls'][] = [$InstanceID, '', $Subject, $Text, $MediaID];
-        return $GLOBALS['smtpResult'] ?? true;
-    }
-
-    function SMTP_SendMailMediaEx(int $InstanceID, string $Recipient, string $Subject, string $Text, int $MediaID): bool
-    {
-        $GLOBALS['smtpCalls'][] = [$InstanceID, $Recipient, $Subject, $Text, $MediaID];
-        return $GLOBALS['smtpResult'] ?? true;
-    }
-}
-
 // Notifications by e-mail and push after a stored trigger snapshot
 class NotificationTest extends TestCase
 {
     private const CONSOLE = '{1D21BC5C-4D67-637A-F881-25186E07F675}';
     private const CAMERA = '{9640A1DD-2C7F-8953-58B8-30A09B2DEE85}';
     private const VISU = '{B5B875BB-9B76-45FD-4E67-2607E45B3AC4}';
+    private const SMTP = '{375EAF21-35EF-4BC4-83B3-C780FD8BD88A}';
 
     private int $id;
     private object $module;
@@ -39,6 +25,8 @@ class NotificationTest extends TestCase
         IPS\Kernel::reset();
         IPS\ModuleLoader::loadLibrary(__DIR__ . '/../library.json');
         IPS\ModuleLoader::loadLibrary(__DIR__ . '/stubs/CoreStubs/library.json');
+        // The SymconStubs contain no SMTP module: a test double with its module ID records the calls
+        IPS\ModuleLoader::loadSingleModule(__DIR__ . '/doubles/SMTP', '{E4713B63-4980-15EF-7247-819552E1629E}');
         $GLOBALS['smtpCalls'] = [];
         $GLOBALS['smtpResult'] = true;
 
@@ -51,8 +39,7 @@ class NotificationTest extends TestCase
         IPS_SetName($this->id, 'Haustür');
         $this->module = IPS\InstanceManager::getInstanceInterface($this->id);
 
-        // Any instance stands in for the SMTP instance
-        $this->smtp = IPS_CreateInstance(self::CONSOLE);
+        $this->smtp = IPS_CreateInstance(self::SMTP);
         $this->visu = IPS_CreateInstance(self::VISU);
     }
 
@@ -81,6 +68,7 @@ class NotificationTest extends TestCase
         $this->setNotifications([
             $this->mail(['Active' => false]),
             $this->mail(['SMTPID' => 0]),
+            $this->mail(['SMTPID' => $this->visu]),
             $this->mail(['Recipient' => 'no address']),
             $this->push(['VisuID' => $this->smtp])
         ]);
@@ -183,6 +171,7 @@ class NotificationTest extends TestCase
         $this->assertFalse($dialog['ConditionValue']['visible']);
         $this->assertSame(['', 'Klingel', 'Tür'], array_column($dialog['Trigger']['options'], 'value'));
         $this->assertSame([self::VISU], $dialog['VisuID']['validModules']);
+        $this->assertSame([self::SMTP], $dialog['SMTPID']['validModules']);
 
         $dialog = array_column(json_decode(CAR_UINotificationForm($this->id, 1, $this->variable(VARIABLETYPE_BOOLEAN, false)), true), null, 'name');
         $this->assertFalse($dialog['SMTPID']['visible']);

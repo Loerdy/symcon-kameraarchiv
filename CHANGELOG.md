@@ -6,6 +6,10 @@ Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 
 ## [Unreleased]
 
+### Geändert
+
+- Die Auswahl der SMTP-Instanz in den Benachrichtigungen bietet nur noch Instanzen „E-Mail senden (SMTP)“ an. Ist eine andere Instanz eingetragen, wird die Zeile rot markiert und nicht gesendet.
+
 ## [1.0.0] - 2026-11-08
 
 Erste Veröffentlichung.
