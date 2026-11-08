@@ -221,51 +221,60 @@ class CameraArchiveCamera extends IPSModuleStrict
      */
     public function UITriggerForm(int $VariableID, int $Condition): string
     {
-        // SelectValue loads type and profile of its variable, so it needs an existing variable.
-        // A new row has no variable yet: then a hint is shown instead (value is set when editing the row again).
-        $hasValueField = $VariableID > 0 && IPS_VariableExists($VariableID);
-        $update = 'CAR_UITriggerUpdate($id, $VariableID, $Condition, ' . ($hasValueField ? 'true' : 'false') . ');';
+        // The value field matches the type of the saved variable. SelectValue is not used: the dialog failed to load
+        // with it ("Unexpected end of JSON input"). A new row has no variable yet: then a hint is shown instead.
+        $type = $VariableID > 0 && IPS_VariableExists($VariableID) ? IPS_GetVariable($VariableID)['VariableType'] : null;
+        $dialogVariableID = $type === null ? 0 : $VariableID;
+        $update = 'CAR_UITriggerUpdate($id, $VariableID, $Condition, ' . $dialogVariableID . ');';
+        $needsValue = $this->ConditionNeedsValue($Condition);
         $elements = [
             ['type' => 'CheckBox', 'name' => 'Active', 'caption' => $this->Translate('Active')],
             ['type' => 'ValidationTextBox', 'name' => 'Name', 'caption' => $this->Translate('Name (empty: name of the variable)')],
             ['type' => 'SelectVariable', 'name' => 'VariableID', 'caption' => $this->Translate('Variable'), 'onChange' => $update],
             ['type' => 'Select', 'name' => 'Condition', 'caption' => $this->Translate('Condition'), 'options' => $this->GetConditionOptions(), 'onChange' => $update]
         ];
-        if ($hasValueField) {
+        if ($type === VARIABLETYPE_BOOLEAN) {
             $elements[] = [
-                'type'       => 'SelectValue',
-                'name'       => 'Value',
-                'caption'    => $this->Translate('Value'),
-                'variableID' => $VariableID,
-                'visible'    => $this->ConditionNeedsValue($Condition)
+                'type'    => 'Select',
+                'name'    => 'Value',
+                'caption' => $this->Translate('Value'),
+                'options' => [
+                    ['caption' => $this->Translate('true (on)'), 'value' => 'true'],
+                    ['caption' => $this->Translate('false (off)'), 'value' => 'false']
+                ],
+                'visible' => $needsValue
             ];
-        } else {
+        } elseif ($type !== null) {
             $elements[] = [
-                'type'    => 'Label',
-                'name'    => 'ValueHint',
-                'caption' => $this->Translate('Select the variable and confirm with OK, then open the trigger again to set the value.'),
-                'visible' => $this->ConditionNeedsValue($Condition)
+                'type'    => 'ValidationTextBox',
+                'name'    => 'Value',
+                'caption' => $this->Translate($type === VARIABLETYPE_STRING ? 'Value (text)' : 'Value (number)'),
+                'visible' => $needsValue
             ];
         }
+        $elements[] = [
+            'type'    => 'Label',
+            'name'    => 'ValueHint',
+            'caption' => $this->Translate('Select the variable and confirm with OK, then open the trigger again to set the value.'),
+            'visible' => $needsValue && $type === null
+        ];
         $elements[] = ['type' => 'NumberSpinner', 'name' => 'Delay', 'caption' => $this->Translate('Delay'), 'suffix' => 's', 'minimum' => 0, 'maximum' => self::DELAY_MAX];
         $elements[] = ['type' => 'NumberSpinner', 'name' => 'Lockout', 'caption' => $this->Translate('Lockout time of this trigger'), 'suffix' => 's', 'minimum' => 0, 'maximum' => self::LOCKOUT_MAX];
         return json_encode($elements);
     }
 
     /**
-     * onChange of variable and condition in the trigger dialog: adapts the value field.
+     * onChange of variable and condition in the trigger dialog. The value field fits only the variable the dialog was
+     * opened with ($DialogVariableID, 0 = no value field); for another variable the hint is shown instead.
      */
-    public function UITriggerUpdate(int $VariableID, int $Condition, bool $HasValueField): void
+    public function UITriggerUpdate(int $VariableID, int $Condition, int $DialogVariableID): void
     {
         $needsValue = $this->ConditionNeedsValue($Condition);
-        if (!$HasValueField) {
-            $this->UpdateFormField('ValueHint', 'visible', $needsValue);
-            return;
+        $fieldFits = $DialogVariableID > 0 && $VariableID === $DialogVariableID;
+        if ($DialogVariableID > 0) {
+            $this->UpdateFormField('Value', 'visible', $needsValue && $fieldFits);
         }
-        if ($VariableID > 0 && IPS_VariableExists($VariableID)) {
-            $this->UpdateFormField('Value', 'variableID', $VariableID);
-        }
-        $this->UpdateFormField('Value', 'visible', $needsValue);
+        $this->UpdateFormField('ValueHint', 'visible', $needsValue && !$fieldFits);
     }
 
     /**
@@ -458,10 +467,9 @@ class CameraArchiveCamera extends IPSModuleStrict
         foreach (is_array($list) ? array_values(array_filter($list, 'is_array')) : [] as $position => $row) {
             $variableID = $triggers[$position]['VariableID'];
             $row['rowColor'] = $variableID === 0 || !IPS_VariableExists($variableID) ? '#FFC0C0' : '';
-            // SelectValue in the edit dialog expects a JSON-encoded value and fails to load with an empty string.
-            // Rows saved before a value was chosen contain "", which means the same as "null" (no value).
-            if (($row['Value'] ?? '') === '') {
-                $row['Value'] = 'null';
+            // A development version saved "null" for rows without a value: shown as an empty field
+            if (($row['Value'] ?? null) === 'null') {
+                $row['Value'] = '';
             }
             $rows[] = $row;
         }
@@ -603,19 +611,30 @@ class CameraArchiveCamera extends IPSModuleStrict
     }
 
     /**
-     * Compares the JSON-encoded value of SelectValue with the current value, converted to the variable type.
+     * Compares the value of the trigger with the current value of the variable, converted to the variable type.
+     * Booleans are saved as "true"/"false", numbers as text (comma or point), strings as plain text.
+     * Former versions saved strings JSON-encoded (SelectValue), these are still accepted. An empty value never matches.
      */
-    private function ValueEquals(string $Json, mixed $Value, int $Type): bool
+    private function ValueEquals(string $Expected, mixed $Value, int $Type): bool
     {
-        $expected = $Json === '' ? null : json_decode($Json, true);
-        if ($expected === null || is_array($expected)) {
+        if ($Expected === '') {
+            return false;
+        }
+        $text = trim($Expected);
+        if ($Type === VARIABLETYPE_STRING) {
+            $decoded = json_decode($Expected, true);
+            return $Expected === $Value || (is_string($decoded) && $decoded === $Value);
+        }
+        if ($Type === VARIABLETYPE_BOOLEAN) {
+            return ($text === 'true' || $text === 'false') && ($text === 'true') === $Value;
+        }
+        $number = str_replace(',', '.', $text);
+        if (!is_numeric($number)) {
             return false;
         }
         return match ($Type) {
-            VARIABLETYPE_BOOLEAN => (bool) $expected === $Value,
-            VARIABLETYPE_INTEGER => (int) $expected === $Value,
-            VARIABLETYPE_FLOAT   => is_float($Value) && abs((float) $expected - $Value) < 1e-9,
-            VARIABLETYPE_STRING  => (string) $expected === $Value,
+            VARIABLETYPE_INTEGER => is_int($Value) && (float) $number === (float) $Value,
+            VARIABLETYPE_FLOAT   => is_float($Value) && abs((float) $number - $Value) < 1e-9,
             default              => false
         };
     }

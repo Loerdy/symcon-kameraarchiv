@@ -99,6 +99,24 @@ class TriggerTest extends TestCase
         $this->assertCount(3, $this->queue());
     }
 
+    public function testValueFromTextField(): void
+    {
+        $float = $this->variable(VARIABLETYPE_FLOAT, 0.0);
+        $string = $this->variable(VARIABLETYPE_STRING, 'x');
+        $empty = $this->variable(VARIABLETYPE_STRING, 'x');
+        $this->setTriggers([
+            $this->trigger($float, 3, ['Lockout' => 0, 'Value' => ' 2,5 ']),
+            $this->trigger($string, 3, ['Lockout' => 0, 'Value' => 'ring']),
+            $this->trigger($empty, 3, ['Lockout' => 0, 'Value' => ''])
+        ], 0);
+
+        $this->update($float, 2.5);
+        $this->update($string, 'ring');
+        $this->update($string, '"ring"');
+        $this->update($empty, '');
+        $this->assertCount(2, $this->queue());
+    }
+
     public function testTriggerLockout(): void
     {
         $variable = $this->variable(VARIABLETYPE_BOOLEAN, false);
@@ -208,21 +226,33 @@ class TriggerTest extends TestCase
     public function testTriggerDialogAndRows(): void
     {
         $variable = $this->variable(VARIABLETYPE_BOOLEAN, false);
-        $this->setTriggers([$this->trigger($variable, 0, ['Extra' => true])], 0);
+        $this->setTriggers([$this->trigger($variable, 0, ['Extra' => true, 'Value' => 'null'])], 0);
 
+        // Boolean: selection true/false with the saved format
         $dialog = array_column(json_decode(CAR_UITriggerForm($this->id, $variable, 0), true), null, 'name');
         $this->assertFalse($dialog['Value']['visible']);
+        $this->assertFalse($dialog['ValueHint']['visible']);
         $dialog = array_column(json_decode(CAR_UITriggerForm($this->id, $variable, 2), true), null, 'name');
+        $this->assertSame('Select', $dialog['Value']['type']);
+        $this->assertSame(['true', 'false'], array_column($dialog['Value']['options'], 'value'));
         $this->assertTrue($dialog['Value']['visible']);
-        $this->assertSame($variable, $dialog['Value']['variableID']);
-        $this->assertArrayNotHasKey('ValueHint', $dialog);
+        $this->assertStringEndsWith('$Condition, ' . $variable . ');', $dialog['VariableID']['onChange']);
+        // No SelectValue: the dialog failed to load with it
+        $this->assertNotContains('SelectValue', array_column($dialog, 'type'));
 
-        // New row or deleted variable: SelectValue needs an existing variable, a hint is shown instead
+        // Other types: text field
+        foreach ([VARIABLETYPE_INTEGER => 0, VARIABLETYPE_FLOAT => 0.0, VARIABLETYPE_STRING => ''] as $type => $initial) {
+            $dialog = array_column(json_decode(CAR_UITriggerForm($this->id, $this->variable($type, $initial), 3), true), null, 'name');
+            $this->assertSame('ValidationTextBox', $dialog['Value']['type']);
+            $this->assertTrue($dialog['Value']['visible']);
+        }
+
+        // New row or deleted variable: no value field, a hint is shown instead
         foreach ([0, 999999] as $missing) {
             $dialog = array_column(json_decode(CAR_UITriggerForm($this->id, $missing, 2), true), null, 'name');
             $this->assertArrayNotHasKey('Value', $dialog);
             $this->assertTrue($dialog['ValueHint']['visible']);
-            $this->assertStringEndsWith('$Condition, false);', $dialog['VariableID']['onChange']);
+            $this->assertStringEndsWith('$Condition, 0);', $dialog['VariableID']['onChange']);
         }
 
         $form = json_decode(IPS_GetConfigurationForm($this->id), true);
@@ -231,8 +261,7 @@ class TriggerTest extends TestCase
         $this->assertSame('Test', $elements['Triggers']['values'][0]['Name']);
         $this->assertTrue($elements['Triggers']['values'][0]['Extra']);
         $this->assertSame('', $elements['Triggers']['values'][0]['rowColor']);
-        // SelectValue cannot load an empty string, so a row without a chosen value is shown with "null"
-        $this->assertSame('null', $elements['Triggers']['values'][0]['Value']);
+        $this->assertSame('', $elements['Triggers']['values'][0]['Value']);
     }
 
     private function variable(int $Type, mixed $Value): int

@@ -43,7 +43,7 @@ __Konfigurationsseite__:
 | ---- | ------------ |
 | Protect-Kamera-ID | Wird vom Konfigurator gesetzt. |
 | Bilder im RAM | Anzahl der gespeicherten Bilder (1–200, Standard 5). |
-| Auslöser | Liste der Auslöser, Bearbeiten über das Stift-Symbol. Je Auslöser: Aktiv, Name (erscheint als Auslöser am Bild; leer = Name der Variable), Variable, Bedingung, Wert (bei „Wechselt auf Wert“ und „Wird mit Wert aktualisiert“), Verzögerung (0–60 s) und Sperrzeit (0–3600 s, Standard 30 s). Bei einem neuen Auslöser zuerst die Variable wählen und mit OK bestätigen; den Wert danach beim erneuten Öffnen festlegen. Rot markiert: Variable fehlt. |
+| Auslöser | Liste der Auslöser, Bearbeiten über das Stift-Symbol. Je Auslöser: Aktiv, Name (erscheint als Auslöser am Bild; leer = Name der Variable), Variable, Bedingung, Wert (bei „Wechselt auf Wert“ und „Wird mit Wert aktualisiert“; bei Bool-Variablen Auswahl wahr/falsch, sonst Eingabe als Zahl mit Komma oder Punkt bzw. als Text, Groß-/Kleinschreibung zählt, leer löst nie aus), Verzögerung (0–60 s) und Sperrzeit (0–3600 s, Standard 30 s). Bei einem neuen Auslöser zuerst die Variable wählen und mit OK bestätigen; den Wert danach beim erneuten Öffnen festlegen. Rot markiert: Variable fehlt. |
 | Mindestabstand zwischen zwei Snapshots | Gilt über alle Auslöser dieser Kamera hinweg, z. B. wenn Klingel und Türkontakt gleichzeitig auslösen. Standard 5 s, 0 = aus. |
 
 Soll ein Ereignis mehrere Kameras auslösen (z. B. die Klingel für Haustür und Einfahrt), wird der Auslöser in jeder dieser Kameras eingetragen.
