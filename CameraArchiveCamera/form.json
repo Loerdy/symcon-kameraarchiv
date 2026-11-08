@@ -120,7 +120,7 @@
                     "caption": "Value",
                     "name": "Value",
                     "width": "0px",
-                    "add": "",
+                    "add": "null",
                     "visible": false,
                     "save": true
                 }

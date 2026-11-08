@@ -458,6 +458,11 @@ class CameraArchiveCamera extends IPSModuleStrict
         foreach (is_array($list) ? array_values(array_filter($list, 'is_array')) : [] as $position => $row) {
             $variableID = $triggers[$position]['VariableID'];
             $row['rowColor'] = $variableID === 0 || !IPS_VariableExists($variableID) ? '#FFC0C0' : '';
+            // SelectValue in the edit dialog expects a JSON-encoded value and fails to load with an empty string.
+            // Rows saved before a value was chosen contain "", which means the same as "null" (no value).
+            if (($row['Value'] ?? '') === '') {
+                $row['Value'] = 'null';
+            }
             $rows[] = $row;
         }
         return $rows;

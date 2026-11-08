@@ -231,6 +231,8 @@ class TriggerTest extends TestCase
         $this->assertSame('Test', $elements['Triggers']['values'][0]['Name']);
         $this->assertTrue($elements['Triggers']['values'][0]['Extra']);
         $this->assertSame('', $elements['Triggers']['values'][0]['rowColor']);
+        // SelectValue cannot load an empty string, so a row without a chosen value is shown with "null"
+        $this->assertSame('null', $elements['Triggers']['values'][0]['Value']);
     }
 
     private function variable(int $Type, mixed $Value): int
