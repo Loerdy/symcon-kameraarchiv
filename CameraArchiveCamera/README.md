@@ -35,12 +35,13 @@ Eine Kamera der UniFi-Protect-Konsole: nimmt per Auslöser oder manuell Snapshot
 
 Die Kamera-Instanzen werden mit dem [Kamera-Archiv Konfigurator](../CameraArchiveConfigurator/README.md) angelegt. Er trägt die Protect-Kamera-ID ein und verbindet die Instanz mit der Konsole.
 
-Der Name der Instanz erscheint als Name der Kamera in den Kacheln. Zum Umbenennen des Kamera-Buttons wird einfach die Instanz umbenannt.
+Als Name der Kamera erscheint in den Kacheln, Benachrichtigungen und Downloads der Anzeigename. Ist keiner gesetzt, wird der Name der Instanz verwendet (beim Anlegen der Name aus Protect).
 
 __Konfigurationsseite__:
 
 | Name | Beschreibung |
 | ---- | ------------ |
+| Anzeigename | Name auf dem Kamera-Button der Kamera- und Übersichtskachel, im Vollbild, in Mail und Push sowie im Dateinamen beim Herunterladen. Leer = Name der Instanz. Der Ordner auf dem NAS hängt nicht davon ab. |
 | Protect-Kamera-ID | Wird vom Konfigurator gesetzt. |
 | Bilder im RAM | Anzahl der gespeicherten Bilder (1–200, Standard 5). |
 | Auslöser | Liste der Auslöser, Bearbeiten über das Stift-Symbol. Je Auslöser: Aktiv, Name (erscheint als Auslöser am Bild; leer = Name der Variable), Variable, Bedingung, Wert (bei „Wechselt auf Wert“ und „Wird mit Wert aktualisiert“; bei Bool-Variablen Auswahl wahr/falsch, sonst Eingabe als Zahl mit Komma oder Punkt bzw. als Text, Groß-/Kleinschreibung zählt, leer löst nie aus), Verzögerung (0–60 s) und Sperrzeit (0–3600 s, Standard 30 s). Das Wertfeld passt sich der gewählten Variable an. Rot markiert: Variable fehlt. |
@@ -87,7 +88,7 @@ Nach jedem gespeicherten Snapshot eines Auslösers werden die passenden Benachri
 | Bedingung | Optional: Variable und Wert, z. B. Anwesenheit = falsch für „niemand zu Hause“. Gesendet wird nur, wenn die Variable beim Speichern des Bildes diesen Wert hat. Das Wertfeld passt sich der Variable an, wie bei den Auslösern. |
 
 * **E-Mail:** Betreff „Kamera: Auslöser“, im Text Kamera, Auslöser und Zeit. Das Bild hängt als Anhang an (direkt aus dem Medienobjekt, ohne Datei).
-* **Push:** Titel = Name der Kamera (höchstens 32 Zeichen), Text = Auslöser und Uhrzeit. Ein Bild ist in Push-Nachrichten von Symcon nicht möglich.
+* **Push:** Titel = Anzeigename der Kamera (höchstens 32 Zeichen), Text = Auslöser und Uhrzeit. Ein Bild ist in Push-Nachrichten von Symcon nicht möglich.
 * Jede Benachrichtigung wird unabhängig gesendet. Schlägt eine fehl, werden die anderen trotzdem gesendet. Der Fehler steht in der Debug-Ausgabe und einmalig im Meldungsfenster, bis der Versand wieder klappt.
 
 __Testbereich__:
@@ -129,7 +130,7 @@ Die Instanz bringt eine eigene Kachel mit (HTML-SDK). Die Kachel der Konsole zei
   * **Live** (Funk-Symbol): zeigt im eingestellten Abrufintervall (Standard 1 Sekunde) ein aktuelles Bild der Kamera, auch im Vollbild. Die Livebilder werden nicht gespeichert. Die Live-Ansicht endet nach der eingestellten Höchstdauer, wenn die Kachel nicht mehr zu sehen ist (andere Seite der Visualisierung, weggescrollt, gesperrtes Handy, App im Hintergrund), beim Wechsel der Kamera oder beim Antippen eines Vorschaubilds. Mit der Option „Live-Ansicht beim Anzeigen der Kachel starten“ startet sie automatisch und nach dem Zurückkehren auf die Seite erneut; wurde sie von Hand beendet oder ist die Höchstdauer abgelaufen, startet sie erst beim nächsten Anzeigen der Kachel wieder. Jede offene und sichtbare Kachel mit Live-Ansicht fragt die Protect-Konsole einmal pro Intervall ab (sechs Kameras mit 1 Sekunde: etwa sechs Abrufe pro Sekunde). Jeder Abruf steht in der Debug-Ausgabe der Kamera („Live“). Schlagen drei Bilder nacheinander fehl, endet sie mit einem Hinweis. Mit „Snapshot aufnehmen“ lässt sich das aktuelle Bild jederzeit speichern.
   * **Snapshot aufnehmen** (Kamera-Symbol): Das neue Bild erscheint, sobald es gespeichert ist. Während der Aufnahme dreht sich das Symbol. Schlägt die Aufnahme fehl, erscheint ein Hinweis in der Kachel. Sperrzeiten und Mindestabstand der Auslöser gelten hier nicht.
   * **Behalten** (Lesezeichen): Ein markiertes Bild wird vom Ringpuffer nicht überschrieben. Erneutes Antippen hebt die Markierung auf.
-  * **Herunterladen**: speichert das Bild als `<Name der Instanz>_<Datum>_<Uhrzeit>.jpg`. Ob die Datei gespeichert oder nur angezeigt wird, hängt von Browser bzw. App ab.
+  * **Herunterladen**: speichert das Bild als `<Anzeigename>_<Datum>_<Uhrzeit>.jpg`. Ob die Datei gespeichert oder nur angezeigt wird, hängt von Browser bzw. App ab.
   * **Löschen** (Papierkorb): Das erste Antippen fragt nach („Löschen?“), das zweite innerhalb von 4 Sekunden löscht das Bild, auch wenn es als „Behalten“ markiert ist.
 * **Archiv** (nur bei eingeschaltetem NAS-Upload): Die Taste „Archiv“ unten links wechselt zu den Bildern auf dem NAS. Eine Auswahl bietet die Tage mit Bildern an (neuester zuerst), die Leiste zeigt die Bilder des Tages mit Vorschaubildern, der Filter nach Auslöser gilt auch hier. Archivbilder lassen sich ansehen, im Vollbild durchblättern und herunterladen; Behalten und Löschen gibt es im Archiv nicht. „Neueste“ wechselt zurück, ebenso ein Snapshot aus der Kachel.
 * Antippen des großen Bildes öffnet die Vollbildansicht. Wischen oder die Pfeile wechseln zum neueren oder älteren Bild, Antippen des Bildes oder das Kreuz schließt die Ansicht. Am Rechner gehen auch die Pfeiltasten und Escape. Erlaubt der Browser bzw. die App für die Kachel echtes Vollbild, füllt die Ansicht den ganzen Bildschirm, sonst die ganze Kachel.

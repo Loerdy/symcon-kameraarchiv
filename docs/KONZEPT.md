@@ -13,7 +13,7 @@ Zielplattform: SymBox (Flash schonen, RAM knapp: 1–2 GB).
 
 - Datenfluss Kamera/Konfigurator → Konsole `{9EC0ACA4-E5E8-FBE2-061E-944A1C1A13BB}`, Konsole → Kinder `{0EACC956-88F0-E151-304C-A22F37DDA6EA}`. Befehle als JSON, HEX-kodiert im Feld `Buffer` (IPSModuleStrict); Antworten als JSON, Bilder Base64.
 - Befehle an die Konsole: `GetCameras`, `Snapshot` (liefert das verkleinerte Bild und die Cache-Option), `GetSettings`, `StateChanged`. Befehle an die Kinder: `GetTileState` (für die Übersichtskachel), `Settings` (Cache-Option geändert).
-- Der Name der Kamera-Instanz ist der Name des Kamera-Buttons in den Kacheln.
+- Der Kamera-Button in den Kacheln trägt den Anzeigenamen der Kamera (Eigenschaft `DisplayName`), ohne Anzeigenamen den Namen der Kamera-Instanz.
 
 ## 1. Bildquellen (pro Kamera wählbar)
 

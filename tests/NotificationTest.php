@@ -63,6 +63,19 @@ class NotificationTest extends TestCase
         $this->assertSame('Haustür: Türkontakt', $calls[2][2]);
     }
 
+    public function testMailUsesDisplayName(): void
+    {
+        IPS_SetProperty($this->id, 'DisplayName', 'Eingang');
+        $this->setNotifications([$this->mail()]);
+        $this->send('Klingel', $this->storeImage());
+
+        $calls = $GLOBALS['smtpCalls'];
+        $this->assertCount(1, $calls);
+        $this->assertSame('Eingang: Klingel', $calls[0][2]);
+        $this->assertStringContainsString('Eingang', $calls[0][3]);
+        $this->assertStringNotContainsString('Haustür', $calls[0][3]);
+    }
+
     public function testInactiveOrIncompleteNotificationIsNotSent(): void
     {
         $this->setNotifications([

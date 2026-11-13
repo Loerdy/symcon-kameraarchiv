@@ -114,6 +114,20 @@ class TileTest extends TestCase
         $this->assertSame(['slot', 'seq', 'time', 'trigger', 'keep', 'width', 'height'], array_keys($camera['images'][0]));
     }
 
+    public function testDisplayNameReplacesInstanceName(): void
+    {
+        [$id, $module] = $this->createCamera(3);
+        IPS_SetName($id, 'G4 Doorbell Pro');
+        IPS_SetProperty($id, 'DisplayName', '  Haustür  ');
+        IPS_ApplyChanges($id);
+        $this->assertSame('Haustür', $this->state($module)['cameras'][0]['name']);
+
+        // Only spaces: the name of the instance is used
+        IPS_SetProperty($id, 'DisplayName', '   ');
+        IPS_ApplyChanges($id);
+        $this->assertSame('G4 Doorbell Pro', $this->state($module)['cameras'][0]['name']);
+    }
+
     public function testDamagedIndexIsReportedAndKept(): void
     {
         [$id, $module] = $this->createCamera(3);
@@ -191,6 +205,8 @@ class TileTest extends TestCase
         IPS_SetName($other, 'Andere Konsole');
         IPS_SetPosition($garden, 2);
         IPS_SetPosition($door, 1);
+        IPS_SetProperty($door, 'DisplayName', 'Eingang');
+        IPS_ApplyChanges($door);
         $this->store($doorModule, 'image-1');
 
         $consoleModule = IPS\InstanceManager::getInstanceInterface($console);
@@ -199,7 +215,8 @@ class TileTest extends TestCase
         $state = json_decode($match[1], true);
 
         $this->assertTrue($state['overview']);
-        $this->assertSame(['Haustür', 'Garten'], array_column($state['cameras'], 'name'));
+        // The buttons of the overview use the display name if one is set
+        $this->assertSame(['Eingang', 'Garten'], array_column($state['cameras'], 'name'));
         $this->assertSame([$door, $garden], array_column($state['cameras'], 'id'));
         $this->assertSame($this->token($doorModule), $state['cameras'][0]['token']);
         $this->assertSame($this->token($gardenModule), $state['cameras'][1]['token']);

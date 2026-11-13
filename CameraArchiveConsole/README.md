@@ -98,7 +98,7 @@ Das Modul legt keine Statusvariablen und keine Profile an.
 
 ### 6. Visualisierung
 
-Die Kachel der Konsole zeigt alle verbundenen Kameras. Sie sieht aus wie die Kachel einer Kamera, hat aber oben eine Leiste mit einem Button je Kamera. Der Button trägt den Namen der Kamera-Instanz. Zum Umbenennen eines Buttons wird also die Kamera-Instanz umbenannt. Die Reihenfolge folgt der Position der Kamera-Instanzen im Objektbaum, danach dem Namen.
+Die Kachel der Konsole zeigt alle verbundenen Kameras. Sie sieht aus wie die Kachel einer Kamera, hat aber oben eine Leiste mit einem Button je Kamera. Der Button trägt den Anzeigenamen der Kamera, ist keiner gesetzt, den Namen der Kamera-Instanz. Die Reihenfolge folgt der Position der Kamera-Instanzen im Objektbaum, danach dem angezeigten Namen.
 
 Die Bedienung (Archivleiste, Filter, Vollbild, Aktionen, NAS-Archiv) ist in der [Beschreibung der Kamera](../CameraArchiveCamera/README.md#6-visualisierung) erklärt.
 

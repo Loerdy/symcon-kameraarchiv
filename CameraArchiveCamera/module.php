@@ -95,6 +95,8 @@ class CameraArchiveCamera extends IPSModuleStrict
         parent::Create();
 
         $this->RegisterPropertyString('CameraID', '');
+        // Name shown in the tiles, notifications and downloads; empty = name of the instance
+        $this->RegisterPropertyString('DisplayName', '');
         $this->RegisterPropertyInteger('Images', self::IMAGES_DEFAULT);
         $this->RegisterPropertyString('Triggers', '[]');
         $this->RegisterPropertyInteger('CameraLockout', self::CAMERA_LOCKOUT_DEFAULT);
@@ -773,7 +775,7 @@ class CameraArchiveCamera extends IPSModuleStrict
             $this->SendDebug('Notify', 'SMTP functions not available', 0);
             return false;
         }
-        $camera = IPS_GetName($this->InstanceID);
+        $camera = $this->GetDisplayName();
         $subject = sprintf('%s: %s', $camera, $Trigger);
         $text = implode("\n", [
             sprintf($this->Translate('Snapshot of %s'), $camera),
@@ -797,7 +799,7 @@ class CameraArchiveCamera extends IPSModuleStrict
             return false;
         }
         $target = $Notification['PushTargetID'] > 0 && IPS_ObjectExists($Notification['PushTargetID']) ? $Notification['PushTargetID'] : $this->InstanceID;
-        $title = $this->Shorten(IPS_GetName($this->InstanceID), self::PUSH_TITLE_MAX);
+        $title = $this->Shorten($this->GetDisplayName(), self::PUSH_TITLE_MAX);
         $text = $this->Shorten(sprintf('%s, %s', $Trigger, date('H:i', $Time)), self::PUSH_TEXT_MAX);
         return @VISU_PostNotification($Notification['VisuID'], $title, $text, '', $target) !== false;
     }
@@ -1237,7 +1239,7 @@ class CameraArchiveCamera extends IPSModuleStrict
                     $index['images'] = $entries;
                     $this->SaveIndex($index, $Cached);
                 }
-                $message = sprintf($this->Translate('All images of %s are marked as "keep": snapshot not stored'), IPS_GetName($this->InstanceID));
+                $message = sprintf($this->Translate('All images of %s are marked as "keep": snapshot not stored'), $this->GetDisplayName());
                 $this->LogMessage($message, KL_WARNING);
                 return ['ok' => false, 'message' => $message];
             }
@@ -1846,12 +1848,12 @@ class CameraArchiveCamera extends IPSModuleStrict
     }
 
     /**
-     * Content-Disposition for a download: name of the instance and time, e.g. "Haustür_2026-11-08_143005.jpg".
+     * Content-Disposition for a download: display name and time, e.g. "Haustür_2026-11-08_143005.jpg".
      * The plain filename is ASCII only (for old clients), filename* carries the UTF-8 name.
      */
     private function GetDownloadDisposition(int $Time): string
     {
-        $name = trim((string) preg_replace('/[\x00-\x1F\x7F\/\\\\:*?"<>|]+/u', '_', IPS_GetName($this->InstanceID)));
+        $name = trim((string) preg_replace('/[\x00-\x1F\x7F\/\\\\:*?"<>|]+/u', '_', $this->GetDisplayName()));
         $file = ($name !== '' ? $name : 'Camera') . '_' . date('Y-m-d_His', $Time) . '.jpg';
         $ascii = (string) preg_replace('/[^A-Za-z0-9._-]+/', '_', $file);
         return sprintf('attachment; filename="%s"; filename*=UTF-8\'\'%s', $ascii, rawurlencode($file));
@@ -1905,7 +1907,7 @@ class CameraArchiveCamera extends IPSModuleStrict
         }
         return [
             'id'           => $this->InstanceID,
-            'name'         => IPS_GetName($this->InstanceID),
+            'name'         => $this->GetDisplayName(),
             'hook'         => '/hook/' . self::HOOK_PREFIX . $this->InstanceID,
             'token'        => $this->ReadAttributeString(self::TOKEN_ATTRIBUTE),
             'images'       => $images,
@@ -1921,6 +1923,15 @@ class CameraArchiveCamera extends IPSModuleStrict
             'liveInterval' => $this->GetLiveInterval(),
             'notice'       => $this->GetTileNotice()
         ];
+    }
+
+    /**
+     * Display name of the camera: the property "DisplayName", otherwise the name of the instance.
+     */
+    private function GetDisplayName(): string
+    {
+        $name = trim($this->ReadPropertyString('DisplayName'));
+        return $name !== '' ? $name : IPS_GetName($this->InstanceID);
     }
 
     private function BuildTileState(): array

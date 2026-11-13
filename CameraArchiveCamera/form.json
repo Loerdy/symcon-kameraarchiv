@@ -3,8 +3,13 @@
     "elements": [
         {
             "type": "Label",
-            "caption": "The name of this instance is shown on the camera button of the tile. Connection and image settings are made in the Camera Archive Console.",
+            "caption": "The display name is shown on the camera button of the tiles, in notifications and in downloads. If it is empty, the name of this instance is used. Connection and image settings are made in the Camera Archive Console.",
             "italic": true
+        },
+        {
+            "type": "ValidationTextBox",
+            "name": "DisplayName",
+            "caption": "Display name"
         },
         {
             "type": "ValidationTextBox",
