@@ -108,7 +108,7 @@ class CameraArchiveCamera extends IPSModuleStrict
         $this->RegisterTimer(self::QUEUE_TIMER, 0, 'IPS_RequestAction($_IPS[\'TARGET\'], \'' . self::QUEUE_TIMER . '\', 0);');
         $this->RegisterTimer(self::SYNC_TIMER, 0, 'IPS_RequestAction($_IPS[\'TARGET\'], \'' . self::SYNC_TIMER . '\', 0);');
 
-        $this->SetVisualizationType(INSTANCE_VISUALIZATION_TYPE_HTML);
+        $this->SetVisualizationType(INSTANCE_VISUALIZATION_TYPE_HTML_FULLSCREEN);
         // The hook is volatile and registered again on every start (see RegisterHook in the SDK documentation)
         $this->RegisterHook(self::HOOK_PREFIX . $this->InstanceID);
     }

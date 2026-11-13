@@ -12,6 +12,7 @@ Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 
 ### Geändert
 
+- Kamera- und Übersichtskachel werden auch in der maximierten Kachel angezeigt (bisher leere Fläche). Dafür ist jetzt **Symcon ab Version 9.1** erforderlich.
 - Die Auswahl der SMTP-Instanz in den Benachrichtigungen bietet nur noch Instanzen „E-Mail senden (SMTP)“ an. Ist eine andere Instanz eingetragen, wird die Zeile rot markiert und nicht gesendet.
 
 ## [1.0.0] - 2026-11-08

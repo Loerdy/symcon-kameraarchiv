@@ -24,7 +24,7 @@ Verbindung zur UniFi-Protect-Konsole. Die Kamera-Instanzen holen ihre Snapshots 
 
 ### 2. Voraussetzungen
 
-* Symcon ab Version 8.1
+* Symcon ab Version 9.1
 * PHP-Erweiterung cURL (in Symcon enthalten)
 * Für die Verkleinerung: PHP-Erweiterung GD. Fehlt sie, werden die Bilder unverkleinert gespeichert.
 * UniFi-OS-Konsole mit UniFi Protect und einem API-Key (Control Plane > Integrations)

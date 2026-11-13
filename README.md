@@ -2,7 +2,7 @@
 
 Snapshots von Kameras per Auslöser (Klingel, Türkontakt, Bewegungsmelder …) aufnehmen und je Kamera in einem Archiv ablegen – mit Kachel-Visualisierung, neueste Bilder zuerst.
 
-Voraussetzungen: Symcon ab Version 8.1, eine UniFi-OS-Konsole mit UniFi Protect und API-Key. Optional ein NAS mit WebDAV (z. B. Synology) und eine SMTP-Instanz bzw. Kachel-Visualisierung für Benachrichtigungen. Technisches Konzept: [docs/KONZEPT.md](docs/KONZEPT.md), Änderungen: [CHANGELOG.md](CHANGELOG.md).
+Voraussetzungen: Symcon ab Version 9.1, eine UniFi-OS-Konsole mit UniFi Protect und API-Key. Optional ein NAS mit WebDAV (z. B. Synology) und eine SMTP-Instanz bzw. Kachel-Visualisierung für Benachrichtigungen. Technisches Konzept: [docs/KONZEPT.md](docs/KONZEPT.md), Änderungen: [CHANGELOG.md](CHANGELOG.md).
 
 ## Module
 

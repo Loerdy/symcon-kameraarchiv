@@ -20,7 +20,7 @@ Listet die Kameras der UniFi-Protect-Konsole und legt je Kamera eine Kamera-Inst
 
 ### 2. Voraussetzungen
 
-* Symcon ab Version 8.1
+* Symcon ab Version 9.1
 * Eine eingerichtete Kamera-Archiv Konsole
 
 ### 3. Software-Installation

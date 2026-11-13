@@ -88,7 +88,7 @@ class CameraArchiveConsole extends IPSModuleStrict
         $this->RegisterTimer(self::UPLOAD_TIMER, 0, 'IPS_RequestAction($_IPS[\'TARGET\'], \'' . self::UPLOAD_TIMER . '\', 0);');
         $this->RegisterTimer(self::SYNC_TIMER, 0, 'IPS_RequestAction($_IPS[\'TARGET\'], \'' . self::SYNC_TIMER . '\', 0);');
 
-        $this->SetVisualizationType(INSTANCE_VISUALIZATION_TYPE_HTML);
+        $this->SetVisualizationType(INSTANCE_VISUALIZATION_TYPE_HTML_FULLSCREEN);
     }
 
     public function MessageSink(int $TimeStamp, int $SenderID, int $Message, array $Data): void

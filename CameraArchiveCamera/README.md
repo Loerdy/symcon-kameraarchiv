@@ -23,7 +23,7 @@ Eine Kamera der UniFi-Protect-Konsole: nimmt per Auslöser oder manuell Snapshot
 
 ### 2. Voraussetzungen
 
-* Symcon ab Version 8.1
+* Symcon ab Version 9.1
 * Eine eingerichtete Kamera-Archiv Konsole
 
 ### 3. Software-Installation
