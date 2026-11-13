@@ -13,6 +13,12 @@ class CameraArchiveSettings extends IPSModuleStrict
     // Rows as written to the cameras the last time. Only rows that differ from it were changed in the form; all
     // other rows are left alone, so that a restart or an apply without changes never writes old values back.
     private const APPLIED_ATTRIBUTE = 'Applied';
+    // Instance IDs of the rows in the order the form showed them. Symcon only saves the columns with an edit field,
+    // so the saved rows carry no instance ID: row n belongs to the n-th instance of this list.
+    private const FORM_ATTRIBUTE = 'FormInstances';
+    // Saved rows of the last apply. Unchanged rows (restart, IPS_ApplyChanges without a change in the form) are not
+    // processed again: the order of FormInstances may have changed since, because every opened form sets it.
+    private const SAVED_ATTRIBUTE = 'Saved';
 
     // Editable camera properties with type and limits (same limits as the camera module)
     private const FIELDS = [
@@ -34,6 +40,8 @@ class CameraArchiveSettings extends IPSModuleStrict
 
         $this->RegisterPropertyString('Cameras', '[]');
         $this->RegisterAttributeString(self::APPLIED_ATTRIBUTE, '[]');
+        $this->RegisterAttributeString(self::FORM_ATTRIBUTE, '[]');
+        $this->RegisterAttributeString(self::SAVED_ATTRIBUTE, '[]');
     }
 
     public function ApplyChanges(): void
@@ -45,8 +53,24 @@ class CameraArchiveSettings extends IPSModuleStrict
         if (IPS_GetKernelRunlevel() !== KR_READY) {
             return;
         }
-        $rows = $this->ReadRows($this->ReadPropertyString('Cameras'));
-        $applied = $this->ReadRows($this->ReadAttributeString(self::APPLIED_ATTRIBUTE));
+        $property = $this->ReadPropertyString('Cameras');
+        if ($property === $this->ReadAttributeString(self::SAVED_ATTRIBUTE)) {
+            return;
+        }
+        $this->WriteAttributeString(self::SAVED_ATTRIBUTE, $property);
+        $saved = json_decode($property, true);
+        $saved = is_array($saved) ? $saved : [];
+        $instances = json_decode($this->ReadAttributeString(self::FORM_ATTRIBUTE), true);
+        $instances = is_array($instances) ? $instances : [];
+        if (count($saved) !== count($instances)) {
+            // Rows and instances of the form do not match (should not happen): better write nothing
+            if ($saved !== []) {
+                $this->LogMessage($this->Translate('The rows do not match the cameras of the form. Nothing was changed, please open the form again.'), KL_WARNING);
+            }
+            return;
+        }
+        $rows = $this->ReadRows($saved, $instances);
+        $applied = $this->ReadRows(json_decode($this->ReadAttributeString(self::APPLIED_ATTRIBUTE), true) ?: [], []);
         foreach ($rows as $instanceID => $row) {
             if (($applied[$instanceID] ?? null) !== $row) {
                 $this->ApplyRow($instanceID, $row);
@@ -63,12 +87,15 @@ class CameraArchiveSettings extends IPSModuleStrict
     {
         $form = json_decode(file_get_contents(__DIR__ . '/form.json'), true);
         // The list uses loadValuesFromConfiguration = false: it always shows the current values of the cameras
-        $this->PatchFormField($form['elements'], 'Cameras', 'values', $this->BuildRows());
+        $rows = $this->BuildRows();
+        $this->WriteAttributeString(self::FORM_ATTRIBUTE, (string) json_encode(array_column($rows, 'instanceID')));
+        $this->PatchFormField($form['elements'], 'Cameras', 'values', $rows);
         return json_encode($form);
     }
 
     /**
-     * Current values of all camera instances.
+     * Current values of all camera instances, sorted by name. The list itself does not sort, so that the saved
+     * rows keep this order.
      */
     private function BuildRows(): array
     {
@@ -80,18 +107,22 @@ class CameraArchiveSettings extends IPSModuleStrict
             }
             $rows[] = $row;
         }
+        usort($rows, fn (array $A, array $B): int => [mb_strtolower($A['name']), $A['instanceID']] <=> [mb_strtolower($B['name']), $B['instanceID']]);
         return $rows;
     }
 
     /**
-     * Rows of the list by instance ID, with values converted and limited. Rows without a valid ID are dropped.
+     * Rows by instance ID, with values converted and limited. The ID comes from the row itself or, for rows saved
+     * by the form, from $Instances at the same position. Rows without a valid ID are dropped.
      */
-    private function ReadRows(string $JSON): array
+    private function ReadRows(array $Data, array $Instances): array
     {
-        $data = json_decode($JSON, true);
         $rows = [];
-        foreach (is_array($data) ? $data : [] as $entry) {
-            $instanceID = is_array($entry) ? ($entry['instanceID'] ?? null) : null;
+        foreach (array_values($Data) as $position => $entry) {
+            if (!is_array($entry)) {
+                continue;
+            }
+            $instanceID = $entry['instanceID'] ?? $Instances[$position] ?? null;
             if (!is_int($instanceID) || $instanceID <= 0) {
                 continue;
             }

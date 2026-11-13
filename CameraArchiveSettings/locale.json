@@ -15,7 +15,8 @@
             "NAS upload": "NAS-Upload",
             "NAS folder": "NAS-Ordner",
             "NAS days": "NAS-Tage",
-            "Settings of %s could not be applied.": "Einstellungen von %s konnten nicht übernommen werden."
+            "Settings of %s could not be applied.": "Einstellungen von %s konnten nicht übernommen werden.",
+            "The rows do not match the cameras of the form. Nothing was changed, please open the form again.": "Die Zeilen passen nicht zu den Kameras des Formulars. Es wurde nichts geändert, bitte das Formular neu öffnen."
         }
     }
 }

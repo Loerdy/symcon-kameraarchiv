@@ -14,10 +14,6 @@
             "add": false,
             "delete": false,
             "loadValuesFromConfiguration": false,
-            "sort": {
-                "column": "name",
-                "direction": "ascending"
-            },
             "columns": [
                 {
                     "caption": "ID",

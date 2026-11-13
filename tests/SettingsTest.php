@@ -11,6 +11,8 @@ class SettingsTest extends TestCase
 {
     private const SETTINGS = '{4433B110-9053-C3A3-BBA2-AE61139B5CBA}';
     private const CAMERA = '{9640A1DD-2C7F-8953-58B8-30A09B2DEE85}';
+    // Symcon only saves the columns with an edit field (seen on the live system)
+    private const EDIT_COLUMNS = ['DisplayName', 'Images', 'CameraLockout', 'LiveAutoStart', 'LiveDuration', 'LiveIntervalSeconds', 'NASUpload', 'NASFolder', 'NASRetention'];
 
     protected function setUp(): void
     {
@@ -19,7 +21,7 @@ class SettingsTest extends TestCase
         IPS\ModuleLoader::loadLibrary(__DIR__ . '/../library.json');
     }
 
-    public function testFormShowsCurrentValuesOfAllCameras(): void
+    public function testFormShowsCurrentValuesOfAllCamerasSortedByName(): void
     {
         $door = $this->createCamera('Haustür');
         $garden = $this->createCamera('Garten');
@@ -28,17 +30,14 @@ class SettingsTest extends TestCase
         IPS_ApplyChanges($garden);
         $settings = $this->createSettings();
 
-        $rows = array_column($this->rows($settings), null, 'instanceID');
-        $this->assertSame([$door, $garden], array_keys($rows));
-        $this->assertSame('Haustür', $rows[$door]['name']);
-        $this->assertSame('', $rows[$door]['DisplayName']);
-        $this->assertSame(1, $rows[$door]['LiveIntervalSeconds']);
-        $this->assertSame('Gartenhaus', $rows[$garden]['DisplayName']);
-        $this->assertSame(5, $rows[$garden]['LiveIntervalSeconds']);
-        $this->assertSame(
-            ['instanceID', 'name', 'DisplayName', 'Images', 'CameraLockout', 'LiveAutoStart', 'LiveDuration', 'LiveIntervalSeconds', 'NASUpload', 'NASFolder', 'NASRetention'],
-            array_keys($rows[$door])
-        );
+        $rows = $this->rows($settings);
+        $this->assertSame([$garden, $door], array_column($rows, 'instanceID'));
+        $this->assertSame('Gartenhaus', $rows[0]['DisplayName']);
+        $this->assertSame(5, $rows[0]['LiveIntervalSeconds']);
+        $this->assertSame('Haustür', $rows[1]['name']);
+        $this->assertSame('', $rows[1]['DisplayName']);
+        $this->assertSame(1, $rows[1]['LiveIntervalSeconds']);
+        $this->assertSame(array_merge(['instanceID', 'name'], self::EDIT_COLUMNS), array_keys($rows[1]));
     }
 
     public function testChangedRowIsWrittenToTheCamera(): void
@@ -48,13 +47,13 @@ class SettingsTest extends TestCase
         $settings = $this->createSettings();
 
         $rows = $this->rows($settings);
-        $rows[0]['DisplayName'] = ' Eingang ';
-        $rows[0]['Images'] = 500;
-        $rows[0]['LiveAutoStart'] = true;
-        $rows[0]['LiveIntervalSeconds'] = 3;
-        $rows[0]['NASUpload'] = true;
-        $rows[0]['NASFolder'] = 'Tür';
-        $rows[0]['NASRetention'] = 7;
+        $rows[1]['DisplayName'] = ' Eingang ';
+        $rows[1]['Images'] = 500;
+        $rows[1]['LiveAutoStart'] = true;
+        $rows[1]['LiveIntervalSeconds'] = 3;
+        $rows[1]['NASUpload'] = true;
+        $rows[1]['NASFolder'] = 'Tür';
+        $rows[1]['NASRetention'] = 7;
         $this->save($settings, $rows);
 
         $this->assertSame('Eingang', IPS_GetProperty($door, 'DisplayName'));
@@ -75,7 +74,7 @@ class SettingsTest extends TestCase
         $settings = $this->createSettings();
 
         $rows = $this->rows($settings);
-        $rows[0]['DisplayName'] = 'Eingang';
+        $rows[1]['DisplayName'] = 'Eingang';
         $this->save($settings, $rows);
 
         // Changed directly in the camera afterwards
@@ -88,25 +87,45 @@ class SettingsTest extends TestCase
 
         // The next change in the form starts from the current values of the cameras
         $rows = $this->rows($settings);
-        $rows[0]['DisplayName'] = 'Tür';
+        $rows[1]['DisplayName'] = 'Tür';
         $this->save($settings, $rows);
         $this->assertSame('Tür', IPS_GetProperty($door, 'DisplayName'));
         $this->assertSame(10, IPS_GetProperty($garden, 'LiveDuration'));
     }
 
-    public function testRowsOfOtherInstancesAreIgnored(): void
+    public function testRestartAfterReorderedFormWritesNothing(): void
+    {
+        $door = $this->createCamera('Haustür');
+        $garden = $this->createCamera('Garten');
+        IPS_SetProperty($garden, 'Images', 50);
+        IPS_ApplyChanges($garden);
+        $settings = $this->createSettings();
+
+        $rows = $this->rows($settings);
+        $rows[1]['DisplayName'] = 'Eingang';
+        $this->save($settings, $rows);
+
+        // Renamed: the next opened form has another order, but is not saved
+        IPS_SetName($door, 'Auffahrt');
+        $this->assertSame([$door, $garden], array_column($this->rows($settings), 'instanceID'));
+        IPS_ApplyChanges($settings);
+
+        $this->assertSame(5, IPS_GetProperty($door, 'Images'));
+        $this->assertSame(50, IPS_GetProperty($garden, 'Images'));
+        $this->assertSame('', IPS_GetProperty($garden, 'DisplayName'));
+    }
+
+    public function testRowsThatDoNotMatchTheFormAreNotWritten(): void
     {
         $door = $this->createCamera('Haustür');
         $settings = $this->createSettings();
-        $other = IPS_CreateInstance(self::SETTINGS);
 
         $rows = $this->rows($settings);
-        $rows[] = array_merge($rows[0], ['instanceID' => $other, 'DisplayName' => 'X']);
-        $rows[] = array_merge($rows[0], ['instanceID' => 99999, 'DisplayName' => 'X']);
         $rows[0]['DisplayName'] = 'Eingang';
+        $rows[] = $rows[0];
         $this->save($settings, $rows);
 
-        $this->assertSame('Eingang', IPS_GetProperty($door, 'DisplayName'));
+        $this->assertSame('', IPS_GetProperty($door, 'DisplayName'));
     }
 
     private function createCamera(string $Name): int
@@ -136,9 +155,11 @@ class SettingsTest extends TestCase
         $this->fail('List not found');
     }
 
+    // Saves the rows like the form does: only the columns with an edit field
     private function save(int $Settings, array $Rows): void
     {
-        IPS_SetProperty($Settings, 'Cameras', json_encode($Rows));
+        $saved = array_map(fn (array $Row): array => array_intersect_key($Row, array_flip(self::EDIT_COLUMNS)), $Rows);
+        IPS_SetProperty($Settings, 'Cameras', json_encode($saved));
         IPS_ApplyChanges($Settings);
     }
 }

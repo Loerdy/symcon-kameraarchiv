@@ -34,7 +34,7 @@ Unter „Instanz hinzufügen“ kann „Kamera-Archiv Einstellungen“ mithilfe 
 
 __Konfigurationsseite__:
 
-Werte in den Zeilen ändern und mit „Änderungen übernehmen“ bestätigen. Nur Zeilen, die in diesem Formular geändert wurden, werden in die Kameras geschrieben; jede geänderte Kamera wird danach einmal übernommen. Auslöser und Benachrichtigungen werden weiterhin in den Kamera-Instanzen eingestellt.
+Werte in den Zeilen ändern und mit „Änderungen übernehmen“ bestätigen. Nur Zeilen, die in diesem Formular geändert wurden, werden in die Kameras geschrieben; jede geänderte Kamera wird danach einmal übernommen. Auslöser und Benachrichtigungen werden weiterhin in den Kamera-Instanzen eingestellt. Die Zeilen sind nach dem Namen der Instanz sortiert.
 
 | Spalte | Beschreibung |
 | ------ | ------------ |
