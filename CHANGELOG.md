@@ -8,7 +8,7 @@ Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 
 ### Hinzugefügt
 
-- **Live-Ansicht** in Kamera- und Übersichtskachel: Die Taste „Live“ zeigt etwa jede Sekunde ein aktuelles Bild, auch im Vollbild. Die Bilder werden nicht gespeichert. Die Ansicht endet nach der Höchstdauer (je Kamera 1–30 Minuten, Standard 2), wenn die Kachel nicht mehr zu sehen ist, beim Kamerawechsel oder nach wiederholten Fehlern. Optional startet sie automatisch, sobald die Kachel angezeigt wird, und nach dem Zurückkehren auf die Seite erneut.
+- **Live-Ansicht** in Kamera- und Übersichtskachel: Die Taste „Live“ zeigt im einstellbaren Abrufintervall (je Kamera 0,5–30 Sekunden, Standard 1) ein aktuelles Bild, auch im Vollbild. Die Bilder werden nicht gespeichert. Die Ansicht endet nach der Höchstdauer (je Kamera 1–30 Minuten, Standard 2), wenn die Kachel nicht mehr zu sehen ist, beim Kamerawechsel oder nach wiederholten Fehlern. Optional startet sie automatisch, sobald die Kachel angezeigt wird, und nach dem Zurückkehren auf die Seite erneut.
 
 ### Geändert
 

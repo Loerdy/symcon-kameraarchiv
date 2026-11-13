@@ -145,7 +145,7 @@
         },
         {
             "type": "Label",
-            "caption": "Live view in the tile (about one image per second, not stored)",
+            "caption": "Live view in the tile (image sequence, not stored)",
             "bold": true
         },
         {
@@ -162,8 +162,17 @@
             "maximum": 30
         },
         {
+            "type": "NumberSpinner",
+            "name": "LiveInterval",
+            "caption": "Interval of the live view",
+            "suffix": "s",
+            "digits": 1,
+            "minimum": 0.5,
+            "maximum": 30
+        },
+        {
             "type": "Label",
-            "caption": "Every open and visible tile with live view asks the Protect console about once per second. The live view stops when the tile is no longer visible and starts again automatically when it is shown again.",
+            "caption": "Every open and visible tile with live view asks the Protect console once per interval. The live view stops when the tile is no longer visible and starts again automatically when it is shown again.",
             "italic": true
         },
         {

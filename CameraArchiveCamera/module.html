@@ -404,12 +404,12 @@
     // answers to other requests (e.g. of another viewer of the same instance) are ignored.
     const archive = { camera: null, days: [], date: '', files: [], loading: false, error: '', request: '', timer: null, counter: 0 };
     const ARCHIVE_TIMEOUT_MS = 20000;
-    // Live view: images are loaded one after another (about one per second) as long as the tile is visible,
+    // Live view: images are loaded one after another (interval set in the camera, "liveInterval", seconds) as long as the tile is visible,
     // at most the duration set in the camera ("liveMax", seconds). After LIVE_MAX_ERRORS failed images in a row it
     // stops. "suppressed": stopped by the user, by the maximum duration or by errors; the automatic start waits
     // until the tile is shown again.
     const live = { camera: null, running: false, url: '', time: null, errors: 0, timer: null, stopTimer: null, suppressed: false };
-    const LIVE_INTERVAL_MS = 1000;
+    const LIVE_DEFAULT_INTERVAL_S = 1;
     const LIVE_DEFAULT_MAX_S = 120;
     const LIVE_MAX_ERRORS = 3;
     // The tile is visible if the page is shown (not locked, not in the background) and the tile is on the screen
@@ -572,7 +572,8 @@
             }
         }).finally(() => {
             if (liveActive(camera)) {
-                live.timer = setTimeout(() => loadLiveImage(camera), Math.max(0, LIVE_INTERVAL_MS - (Date.now() - started)));
+                const interval = typeof camera.liveInterval === 'number' && camera.liveInterval > 0 ? camera.liveInterval : LIVE_DEFAULT_INTERVAL_S;
+                live.timer = setTimeout(() => loadLiveImage(camera), Math.max(0, interval * 1000 - (Date.now() - started)));
             }
         });
     }

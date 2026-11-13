@@ -67,6 +67,10 @@ class CameraArchiveCamera extends IPSModuleStrict
     // Maximum duration of a live view in minutes (also for the automatic start)
     private const LIVE_DURATION_DEFAULT = 2;
     private const LIVE_DURATION_MAX = 30;
+    // Interval of the live view in seconds: the tile requests the next image this long after the previous request
+    private const LIVE_INTERVAL_DEFAULT = 1.0;
+    private const LIVE_INTERVAL_MIN = 0.5;
+    private const LIVE_INTERVAL_MAX = 30.0;
 
     // Notifications after a stored snapshot of a trigger
     private const NOTIFY_MAIL = 0;
@@ -100,6 +104,7 @@ class CameraArchiveCamera extends IPSModuleStrict
         $this->RegisterPropertyInteger('NASRetention', self::NAS_RETENTION_DEFAULT);
         $this->RegisterPropertyBoolean('LiveAutoStart', false);
         $this->RegisterPropertyInteger('LiveDuration', self::LIVE_DURATION_DEFAULT);
+        $this->RegisterPropertyFloat('LiveInterval', self::LIVE_INTERVAL_DEFAULT);
 
         // Secret of the image WebHook, created once in ApplyChanges
         $this->RegisterAttributeString(self::TOKEN_ATTRIBUTE, '');
@@ -1797,8 +1802,14 @@ class CameraArchiveCamera extends IPSModuleStrict
         echo $data;
     }
 
+    private function GetLiveInterval(): float
+    {
+        return max(self::LIVE_INTERVAL_MIN, min(self::LIVE_INTERVAL_MAX, $this->ReadPropertyFloat('LiveInterval')));
+    }
+
     /**
-     * Image of the camera that is at most LIVE_SHARE_SECONDS old. Deviation from the rule "no network under a
+     * Image of the camera that is at most LIVE_SHARE_SECONDS old (shorter with a shorter interval, so that every
+     * request of a viewer gets a new image). Deviation from the rule "no network under a
      * lock" (by intention): this lock only serves the live view, so that several viewers wait for one request to
      * the console instead of each sending their own. It guards no other data.
      */
@@ -1811,7 +1822,7 @@ class CameraArchiveCamera extends IPSModuleStrict
         try {
             $shared = json_decode($this->GetBuffer(self::LIVE_BUFFER), true);
             if (is_array($shared) && is_float($shared['time'] ?? null) && is_string($shared['image'] ?? null)
-                && microtime(true) - $shared['time'] < self::LIVE_SHARE_SECONDS) {
+                && microtime(true) - $shared['time'] < min(self::LIVE_SHARE_SECONDS, $this->GetLiveInterval())) {
                 $data = base64_decode($shared['image'], true);
                 if (is_string($data) && $data !== '') {
                     $this->SendDebug('Live', 'Shared image delivered', 0);
@@ -1906,6 +1917,8 @@ class CameraArchiveCamera extends IPSModuleStrict
             // Start the live view when the tile is shown, and its maximum duration in seconds
             'liveAuto'     => $this->ReadPropertyBoolean('LiveAutoStart'),
             'liveMax'      => max(1, min(self::LIVE_DURATION_MAX, $this->ReadPropertyInteger('LiveDuration'))) * 60,
+            // Interval of the live view in seconds
+            'liveInterval' => $this->GetLiveInterval(),
             'notice'       => $this->GetTileNotice()
         ];
     }
