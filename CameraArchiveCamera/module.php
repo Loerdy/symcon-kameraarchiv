@@ -1929,7 +1929,9 @@ class CameraArchiveCamera extends IPSModuleStrict
      */
     private function GetDisplayName(): string
     {
-        $name = trim($this->ReadPropertyString('DisplayName'));
+        // During a module update the console may ask before the property is registered: then it returns false
+        $name = @$this->ReadPropertyString('DisplayName');
+        $name = is_string($name) ? trim($name) : '';
         return $name !== '' ? $name : IPS_GetName($this->InstanceID);
     }
 
