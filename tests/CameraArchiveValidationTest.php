@@ -25,4 +25,9 @@ class CameraArchiveValidationTest extends TestCaseSymconValidation
     {
         $this->validateModule(__DIR__ . '/../CameraArchiveCamera');
     }
+
+    public function testValidateSettingsModule(): void
+    {
+        $this->validateModule(__DIR__ . '/../CameraArchiveSettings');
+    }
 }

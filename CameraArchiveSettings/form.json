@@ -1,0 +1,119 @@
+{
+    "$schema": "https://www.symcon.de/assets/files/validation/formSchema.json",
+    "elements": [
+        {
+            "type": "Label",
+            "caption": "Settings of all camera instances in one table. Change values in the rows and confirm with \"Apply changes\": only the rows changed here are written to the cameras. Triggers and notifications are set in the camera instances.",
+            "italic": true
+        },
+        {
+            "type": "List",
+            "name": "Cameras",
+            "caption": "Cameras",
+            "rowCount": 10,
+            "add": false,
+            "delete": false,
+            "loadValuesFromConfiguration": false,
+            "sort": {
+                "column": "name",
+                "direction": "ascending"
+            },
+            "columns": [
+                {
+                    "caption": "ID",
+                    "name": "instanceID",
+                    "width": "70px"
+                },
+                {
+                    "caption": "Instance",
+                    "name": "name",
+                    "width": "auto"
+                },
+                {
+                    "caption": "Display name",
+                    "name": "DisplayName",
+                    "width": "180px",
+                    "edit": {
+                        "type": "ValidationTextBox"
+                    }
+                },
+                {
+                    "caption": "Images in RAM",
+                    "name": "Images",
+                    "width": "120px",
+                    "edit": {
+                        "type": "NumberSpinner",
+                        "minimum": 1,
+                        "maximum": 200
+                    }
+                },
+                {
+                    "caption": "Min. interval (s)",
+                    "name": "CameraLockout",
+                    "width": "130px",
+                    "edit": {
+                        "type": "NumberSpinner",
+                        "minimum": 0,
+                        "maximum": 3600
+                    }
+                },
+                {
+                    "caption": "Live auto start",
+                    "name": "LiveAutoStart",
+                    "width": "120px",
+                    "edit": {
+                        "type": "CheckBox"
+                    }
+                },
+                {
+                    "caption": "Live max. (min)",
+                    "name": "LiveDuration",
+                    "width": "120px",
+                    "edit": {
+                        "type": "NumberSpinner",
+                        "minimum": 1,
+                        "maximum": 30
+                    }
+                },
+                {
+                    "caption": "Live interval (s)",
+                    "name": "LiveIntervalSeconds",
+                    "width": "130px",
+                    "edit": {
+                        "type": "NumberSpinner",
+                        "minimum": 1,
+                        "maximum": 30
+                    }
+                },
+                {
+                    "caption": "NAS upload",
+                    "name": "NASUpload",
+                    "width": "100px",
+                    "edit": {
+                        "type": "CheckBox"
+                    }
+                },
+                {
+                    "caption": "NAS folder",
+                    "name": "NASFolder",
+                    "width": "160px",
+                    "edit": {
+                        "type": "ValidationTextBox"
+                    }
+                },
+                {
+                    "caption": "NAS days",
+                    "name": "NASRetention",
+                    "width": "100px",
+                    "edit": {
+                        "type": "NumberSpinner",
+                        "minimum": 0,
+                        "maximum": 3650
+                    }
+                }
+            ],
+            "values": []
+        }
+    ],
+    "actions": []
+}

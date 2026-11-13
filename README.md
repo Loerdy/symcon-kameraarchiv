@@ -11,6 +11,7 @@ Voraussetzungen: Symcon ab Version 9.1, eine UniFi-OS-Konsole mit UniFi Protect 
 | [Kamera-Archiv Konsole](CameraArchiveConsole/README.md) | Verbindung zur UniFi-Protect-Konsole, Bildeinstellungen, Übersichtskachel aller Kameras |
 | [Kamera-Archiv Konfigurator](CameraArchiveConfigurator/README.md) | Listet die Kameras der Konsole und legt je Kamera eine Instanz an |
 | [Kamera-Archiv Kamera](CameraArchiveCamera/README.md) | Eine Kamera: Auslöser, gespeicherte Snapshots, eigene Kachel |
+| [Kamera-Archiv Einstellungen](CameraArchiveSettings/README.md) | Einstellungen aller Kameras in einer Tabelle (optional) |
 
 Einrichtung: einen „Kamera-Archiv Konfigurator“ anlegen (die Konsole wird dabei mit angelegt), in der Konsole Host und API-Key eintragen, dann im Konfigurator die gewünschten Kameras anlegen.
 

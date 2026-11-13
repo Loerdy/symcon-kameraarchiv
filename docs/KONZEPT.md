@@ -10,6 +10,7 @@ Zielplattform: SymBox (Flash schonen, RAM knapp: 1–2 GB).
 | Kamera-Archiv Konsole (`CARC`) | I/O | Protect-Konsole, API-Key, Verkleinern, In-Memory-Cache, später NAS und Mail; Übersichtskachel aller Kameras |
 | Kamera-Archiv Konfigurator (`CARK`) | Konfigurator | listet die Kameras der Konsole, legt je Kamera eine Instanz an |
 | Kamera-Archiv Kamera (`CAR`) | Gerät | eine Kamera: Auslöser, Ringpuffer unterhalb der Instanz, eigene Kachel und WebHook |
+| Kamera-Archiv Einstellungen (`CARS`) | Gerät, ohne Parent | Tabelle der einfachen Einstellungen aller Kamera-Instanzen; die Werte bleiben in den Kameras. Geschrieben werden nur Zeilen, die sich gegenüber dem zuletzt übernommenen Stand (Attribut) geändert haben, und davon nur abweichende Werte. So schreibt ein Neustart oder ein `IPS_ApplyChanges` ohne Änderung im Formular keine alten Werte zurück. |
 
 - Datenfluss Kamera/Konfigurator → Konsole `{9EC0ACA4-E5E8-FBE2-061E-944A1C1A13BB}`, Konsole → Kinder `{0EACC956-88F0-E151-304C-A22F37DDA6EA}`. Befehle als JSON, HEX-kodiert im Feld `Buffer` (IPSModuleStrict); Antworten als JSON, Bilder Base64.
 - Befehle an die Konsole: `GetCameras`, `Snapshot` (liefert das verkleinerte Bild und die Cache-Option), `GetSettings`, `StateChanged`. Befehle an die Kinder: `GetTileState` (für die Übersichtskachel), `Settings` (Cache-Option geändert).
@@ -95,7 +96,7 @@ Keine Statusvariablen ohne Opt-in (Lizenzlimit).
 7. Synology WebDAV (7a): Zugang in der Konsole, Upload/Ordner/Aufbewahrung je Kamera; die Konsole lädt das Original hoch (Warteschlange als kleiner Buffer, Originale in einem Pool aus 30 gecachten Medienobjekten unter der Konsole, da ein Buffer nur 512 KiB fasst und der Kernel alle Buffer einer Instanz über 1 MiB löscht; max. 25 MB, Wiederholung 1–30 min, Größenprüfung per HEAD nach dem Upload), Rotation täglich nach Tagesordnern per PROPFIND/DELETE, „Behalten“ per WebDAV-COPY in `<Kamera>/Behalten`. 7b: Archiv in der bestehenden Kachel (Umschaltung „Archiv“/„Neueste“, Tagesauswahl), Listen per `requestAction` mit Anfrage-ID und Antwort über `UpdateVisualizationValue`, Bilder über den WebHook der Kamera (Konsole liest per WebDAV, Vorschau aus `<Tag>/thumbs`, sonst Original)
 8. Weitere Quellen: Direkt-URL, Surveillance Station
 9. Geplant: Testfunktion für Benachrichtigungen (Mail mit dem neuesten Bild und Push direkt aus dem Formular senden, ohne Auslöser und Bedingung)
-10. Live-Ansicht in der Kachel als Bildfolge (Abrufintervall je Kamera 0,5–30 s, Standard 1 s), umgesetzt in [Unreleased]
+10. Live-Ansicht in der Kachel als Bildfolge (Abrufintervall je Kamera 1–30 s, Standard 1 s), umgesetzt in [Unreleased]
     - Taste „Live“ in Kamera- und Übersichtskachel, auch im Vollbild; aus der Live-Ansicht heraus Snapshot speichern.
     - Die Kachel lädt das Bild periodisch über den WebHook der Kamera (`live=1`); der WebHook holt über die Konsole einen Snapshot ohne `highQuality` (schneller). Nichts wird gespeichert: kein Ringpuffer, kein NAS, kein Flash.
     - Ein Bild wird je Kamera ca. 1 s für alle Zuschauer wiederverwendet: eine eigene Sperre je Kamera, das Bild im Buffer der Kamera nur bis 300 000 Zeichen Base64 (deutlich unter der 512-KiB-Grenze je Buffer), größere Bilder werden nicht geteilt.

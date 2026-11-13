@@ -1,0 +1,21 @@
+{
+    "translations": {
+        "de": {
+            "Camera Archive Settings": "Kamera-Archiv Einstellungen",
+            "Settings of all camera instances in one table. Change values in the rows and confirm with \"Apply changes\": only the rows changed here are written to the cameras. Triggers and notifications are set in the camera instances.": "Einstellungen aller Kamera-Instanzen in einer Tabelle. Werte in den Zeilen ändern und mit „Änderungen übernehmen“ bestätigen: Nur die hier geänderten Zeilen werden in die Kameras geschrieben. Auslöser und Benachrichtigungen werden in den Kamera-Instanzen eingestellt.",
+            "Cameras": "Kameras",
+            "ID": "ID",
+            "Instance": "Instanz",
+            "Display name": "Anzeigename",
+            "Images in RAM": "Bilder im RAM",
+            "Min. interval (s)": "Mindestabstand (s)",
+            "Live auto start": "Live-Autostart",
+            "Live max. (min)": "Live max. (min)",
+            "Live interval (s)": "Live-Intervall (s)",
+            "NAS upload": "NAS-Upload",
+            "NAS folder": "NAS-Ordner",
+            "NAS days": "NAS-Tage",
+            "Settings of %s could not be applied.": "Einstellungen von %s konnten nicht übernommen werden."
+        }
+    }
+}

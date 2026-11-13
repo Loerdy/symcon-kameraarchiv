@@ -37,6 +37,8 @@ Die Kamera-Instanzen werden mit dem [Kamera-Archiv Konfigurator](../CameraArchiv
 
 Als Name der Kamera erscheint in den Kacheln, Benachrichtigungen und Downloads der Anzeigename. Ist keiner gesetzt, wird der Name der Instanz verwendet (beim Anlegen der Name aus Protect).
 
+Anzeigename, Bilder, Mindestabstand, Live-Ansicht und NAS aller Kameras lassen sich auch gesammelt in einer Instanz [Kamera-Archiv Einstellungen](../CameraArchiveSettings/README.md) ändern.
+
 __Konfigurationsseite__:
 
 | Name | Beschreibung |
@@ -48,7 +50,7 @@ __Konfigurationsseite__:
 | Mindestabstand zwischen zwei Snapshots | Gilt über alle Auslöser dieser Kamera hinweg, z. B. wenn Klingel und Türkontakt gleichzeitig auslösen. Standard 5 s, 0 = aus. |
 | Live-Ansicht beim Anzeigen der Kachel starten | Startet die Live-Ansicht automatisch, sobald die Kachel zu sehen ist, z. B. beim Aufruf einer Seite mit den Kameras. Standardmäßig aus. |
 | Höchstdauer der Live-Ansicht | 1–30 Minuten, Standard 2. Gilt für den automatischen Start und für die Taste „Live“. |
-| Abrufintervall der Live-Ansicht | 0,5–30 Sekunden, Standard 1. So oft holt jede offene Kachel ein neues Livebild. Ein kürzeres Intervall belastet die Protect-Konsole stärker. |
+| Abrufintervall der Live-Ansicht | 1–30 Sekunden, Standard 1. So oft holt jede offene Kachel ein neues Livebild. Ein kürzeres Intervall belastet die Protect-Konsole stärker. |
 | Snapshots auf das NAS hochladen | Die Konsole lädt das Original jedes Snapshots dieser Kamera auf das NAS. Adresse und Zugang werden in der Konsole eingestellt. Standardmäßig aus. |
 | Ordner auf dem NAS | Ordner dieser Kamera im Archivordner. Leer = Name der Instanz. Wird die Instanz umbenannt, landen neue Bilder in einem neuen Ordner; dann besser einen festen Ordner eintragen. |
 | Bilder auf dem NAS aufbewahren für | Tagesordner, die älter sind, löscht das Modul einmal täglich. 0 = nie löschen. Standard 30 Tage. |
@@ -135,7 +137,7 @@ Die Instanz bringt eine eigene Kachel mit (HTML-SDK). Die Kachel der Konsole zei
 * **Archiv** (nur bei eingeschaltetem NAS-Upload): Die Taste „Archiv“ unten links wechselt zu den Bildern auf dem NAS. Eine Auswahl bietet die Tage mit Bildern an (neuester zuerst), die Leiste zeigt die Bilder des Tages mit Vorschaubildern, der Filter nach Auslöser gilt auch hier. Archivbilder lassen sich ansehen, im Vollbild durchblättern und herunterladen; Behalten und Löschen gibt es im Archiv nicht. „Neueste“ wechselt zurück, ebenso ein Snapshot aus der Kachel.
 * Antippen des großen Bildes öffnet die Vollbildansicht. Wischen oder die Pfeile wechseln zum neueren oder älteren Bild, Antippen des Bildes oder das Kreuz schließt die Ansicht. Am Rechner gehen auch die Pfeiltasten und Escape. Erlaubt der Browser bzw. die App für die Kachel echtes Vollbild, füllt die Ansicht den ganzen Bildschirm, sonst die ganze Kachel.
 
-Die Bilder liefert der WebHook der Instanz (`/hook/camera-archive-<InstanzID>`). WebHooks sind ohne Anmeldung erreichbar, auch über Symcon Connect. Der WebHook liefert deshalb nur Bilder, wenn die Anfrage den geheimen Schlüssel der Instanz enthält. Diesen Schlüssel erhalten nur die Kacheln der Instanz und der Konsole, die selbst durch das Passwort der Visualisierung geschützt sind. Die Aktionen der Kachel laufen nicht über den WebHook, sondern über die Visualisierung. Livebilder holt der WebHook über die Konsole von Protect (ohne Full-HD; mehrere Zuschauer teilen sich ein Livebild, solange es jünger als das Abrufintervall ist, höchstens 1 Sekunde). Archivbilder holt der WebHook über die Konsole vom NAS; er liefert nur Dateien aus dem NAS-Ordner dieser Kamera, Datum und Dateiname werden geprüft.
+Die Bilder liefert der WebHook der Instanz (`/hook/camera-archive-<InstanzID>`). WebHooks sind ohne Anmeldung erreichbar, auch über Symcon Connect. Der WebHook liefert deshalb nur Bilder, wenn die Anfrage den geheimen Schlüssel der Instanz enthält. Diesen Schlüssel erhalten nur die Kacheln der Instanz und der Konsole, die selbst durch das Passwort der Visualisierung geschützt sind. Die Aktionen der Kachel laufen nicht über den WebHook, sondern über die Visualisierung. Livebilder holt der WebHook über die Konsole von Protect (ohne Full-HD; mehrere Zuschauer teilen sich ein Livebild, solange es jünger als 1 Sekunde ist). Archivbilder holt der WebHook über die Konsole vom NAS; er liefert nur Dateien aus dem NAS-Ordner dieser Kamera, Datum und Dateiname werden geprüft.
 
 ### 7. PHP-Befehlsreferenz
 

@@ -1,0 +1,14 @@
+{
+    "id": "{4433B110-9053-C3A3-BBA2-AE61139B5CBA}",
+    "name": "Camera Archive Settings",
+    "type": 3,
+    "vendor": "",
+    "aliases": [
+        "Kamera-Archiv Einstellungen"
+    ],
+    "url": "https://github.com/Loerdy/symcon-kameraarchiv/blob/main/CameraArchiveSettings/README.md",
+    "parentRequirements": [],
+    "childRequirements": [],
+    "implemented": [],
+    "prefix": "CARS"
+}

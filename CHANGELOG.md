@@ -8,7 +8,8 @@ Das Format basiert auf [Keep a Changelog](https://keepachangelog.com/de/1.1.0/),
 
 ### Hinzugefügt
 
-- **Live-Ansicht** in Kamera- und Übersichtskachel: Die Taste „Live“ zeigt im einstellbaren Abrufintervall (je Kamera 0,5–30 Sekunden, Standard 1) ein aktuelles Bild, auch im Vollbild. Die Bilder werden nicht gespeichert. Die Ansicht endet nach der Höchstdauer (je Kamera 1–30 Minuten, Standard 2), wenn die Kachel nicht mehr zu sehen ist, beim Kamerawechsel oder nach wiederholten Fehlern. Optional startet sie automatisch, sobald die Kachel angezeigt wird, und nach dem Zurückkehren auf die Seite erneut.
+- **Live-Ansicht** in Kamera- und Übersichtskachel: Die Taste „Live“ zeigt im einstellbaren Abrufintervall (je Kamera 1–30 Sekunden, Standard 1) ein aktuelles Bild, auch im Vollbild. Die Bilder werden nicht gespeichert. Die Ansicht endet nach der Höchstdauer (je Kamera 1–30 Minuten, Standard 2), wenn die Kachel nicht mehr zu sehen ist, beim Kamerawechsel oder nach wiederholten Fehlern. Optional startet sie automatisch, sobald die Kachel angezeigt wird, und nach dem Zurückkehren auf die Seite erneut.
+- **Kamera-Archiv Einstellungen** (Präfix `CARS`): neues, optionales Modul mit einer Tabelle aller Kamera-Instanzen. Anzeigename, Bilder im RAM, Mindestabstand, Live-Ansicht und NAS lassen sich dort für alle Kameras ändern; geschrieben werden nur die im Formular geänderten Zeilen.
 - **Anzeigename** je Kamera: erscheint statt des Instanznamens auf den Kamera-Buttons der Kamera- und Übersichtskachel, im Vollbild, in Mail und Push sowie im Dateinamen beim Herunterladen. Leer = Name der Instanz wie bisher.
 
 ### Geändert
